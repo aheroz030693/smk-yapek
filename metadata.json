@@ -1,0 +1,6 @@
+{
+  "name": "SMK YAPEK Gombong",
+  "description": "Portal Resmi & Sistem Informasi Akademik SMK YAPEK Gombong Kebumen - Lembaga Pendidikan Kejuruan Berkualitas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

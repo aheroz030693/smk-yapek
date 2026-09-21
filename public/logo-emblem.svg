@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 130" width="100%" height="100%">
+  <!-- Badge Outer Shield (Yellow/Amber Border) -->
+  <path d="M 60 5 C 92 5, 115 28, 115 60 C 115 88, 85 110, 60 120 C 35 110, 5 88, 5 60 C 5 28, 28 5, 60 5 Z" 
+        fill="#0F4374" stroke="#EA8B00" stroke-width="8" stroke-linejoin="round" />
+  
+  <!-- Inner White Circle Ring -->
+  <circle cx="60" cy="58" r="32" fill="none" stroke="#FFFFFF" stroke-width="5" />
+  
+  <!-- Golden Sun & Wave inside -->
+  <g clip-path="url(#circleClipFavicon)">
+    <circle cx="60" cy="58" r="28" fill="#0F4374" />
+    <circle cx="60" cy="54" r="18" fill="#EA8B00" />
+    <path d="M 32 64 C 44 58, 54 68, 60 62 C 66 56, 76 68, 88 64 L 88 88 L 32 88 Z" fill="#FFFFFF" />
+  </g>
+  <clipPath id="circleClipFavicon">
+    <circle cx="60" cy="58" r="28" />
+  </clipPath>
+</svg>
