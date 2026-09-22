@@ -604,9 +604,9 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
     { id: 'ppdb', label: 'Pendaftar PPDB', icon: Users, badge: applicants.length },
     { 
       id: 'database', 
-      label: 'Database & XAMPP / MySQL', 
-      icon: Database, 
-      badge: 'MySQL/PG', 
+      label: 'Database Spreadsheet (Google Sheets & Excel)', 
+      icon: FileSpreadsheet, 
+      badge: 'Google Sheets', 
       badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' 
     },
     { 
@@ -1092,13 +1092,20 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
           </div>
         )}
 
-        {/* TAB 7: DATABASE CONFIG & SQL SCHEMA */}
+        {/* TAB 7: DATABASE SPREADSHEET (GOOGLE SHEETS & EXCEL) */}
         {userHasAccess('database') && activeAdminTab === 'database' && (
           <AdminDatabaseSection
             newsList={newsList}
             applicants={applicants}
+            schoolInfo={schoolInfo}
+            adminUsers={adminUsers}
             testimonials={testimonials}
             galleryItems={galleryItems}
+            onUpdateApplicants={onUpdateApplicants}
+            onUpdateNews={onUpdateNews}
+            onUpdateSchoolInfo={onUpdateSchoolInfo}
+            onUpdateTestimonials={onUpdateTestimonials}
+            onUpdateGallery={onUpdateGallery}
             isDarkMode={isDarkMode}
           />
         )}

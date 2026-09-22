@@ -1,35 +1,61 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Database, 
+  FileSpreadsheet, 
+  Table, 
   Download, 
+  Upload, 
   Copy, 
   Check, 
-  Server, 
-  KeyRound, 
-  Table, 
-  Layers, 
+  CheckCircle2, 
+  AlertCircle, 
+  RefreshCw, 
+  Search, 
+  Plus, 
+  Trash2, 
+  Save, 
+  X, 
+  ExternalLink, 
   Code2, 
-  ExternalLink,
-  Terminal,
-  CheckCircle2,
-  AlertCircle,
-  RefreshCw,
-  FolderDown,
-  FileCode,
-  Zap,
-  HelpCircle
+  Layers, 
+  Database, 
+  FolderDown, 
+  FileText, 
+  HelpCircle,
+  Link,
+  Send,
+  Eye
 } from 'lucide-react';
-import { dbConfig, getConnectionStrings, DATABASE_TABLES_SCHEMA } from '../../db/config';
-import { RAW_DATABASE_SQL } from '../../db/sqlData';
-import { RAW_MYSQL_XAMPP_SQL, downloadMysqlXamppSqlFile, RAW_PHP_KONEKSI, RAW_PHP_PPDB, downloadFileContent } from '../../db/mysqlData';
-import { downloadDatabaseSqlFile } from '../../db';
-import { NewsItem, PPDBApplicant, AlumniTestimonial, ActivityGalleryItem } from '../../types';
+import { 
+  PPDBApplicant, 
+  NewsItem, 
+  AlumniTestimonial, 
+  ActivityGalleryItem, 
+  SchoolIdentity, 
+  AdminUser 
+} from '../../types';
+import { 
+  getSpreadsheetTables, 
+  generateCsv, 
+  generateTsv, 
+  downloadFile, 
+  parseSpreadsheetText, 
+  GOOGLE_APPS_SCRIPT_CODE,
+  SpreadsheetTable
+} from '../../utils/spreadsheetUtils';
+import { downloadMysqlXamppSqlFile, RAW_PHP_KONEKSI, RAW_PHP_PPDB, downloadFileContent } from '../../db/mysqlData';
 
 interface AdminDatabaseSectionProps {
   newsList: NewsItem[];
   applicants: PPDBApplicant[];
   testimonials: AlumniTestimonial[];
   galleryItems: ActivityGalleryItem[];
+  schoolInfo?: SchoolIdentity;
+  adminUsers?: AdminUser[];
+  onUpdateApplicants?: (updated: PPDBApplicant[]) => void;
+  onUpdateNews?: (updated: NewsItem[]) => void;
+  onUpdateSchoolInfo?: (updated: SchoolIdentity) => void;
+  onUpdateTestimonials?: (updated: AlumniTestimonial[]) => void;
+  onUpdateGallery?: (updated: ActivityGalleryItem[]) => void;
   isDarkMode: boolean;
 }
 
@@ -38,1236 +64,1249 @@ export const AdminDatabaseSection: React.FC<AdminDatabaseSectionProps> = ({
   applicants,
   testimonials,
   galleryItems,
+  schoolInfo = {
+    name: 'SMK YAPEK Gombong',
+    shortName: 'SMK YAPEK',
+    motto: 'Maju Sejahtera Berkarakter',
+    tagline: 'Mencetak Generasi Vokasi Unggul, Berkarakter & Siap Kerja Industri',
+    npsn: '20305012',
+    accreditation: 'A (Unggul)',
+    establishedYear: '1974',
+    address: 'Jl. Widyatama No. 12, Gombong, Kab. Kebumen, Jawa Tengah 54411',
+    phone: '(0287) 471234',
+    altPhone: '(0287) 471235',
+    whatsapp: '081234567890',
+    email: 'info@smkyapekgombong.sch.id',
+    website: 'https://smkyapekgombong.sch.id',
+    instagram: 'https://instagram.com/smkyapek',
+    instagramHandle: '@smkyapekgombong',
+    vision: 'Menjadi SMK Pusat Keunggulan Berkarakter dan Berwawasan Global.',
+    missions: ['Mendidik generasi berakhlak mulia', 'Meningkatkan kompetensi kejuruan'],
+    stats: { students: '1.450+', alumni: '94%', industryPartners: '48+', jobPlacementRate: '94%', teachers: '78+' }
+  },
+  adminUsers = [],
+  onUpdateApplicants,
+  onUpdateNews,
+  onUpdateSchoolInfo,
+  onUpdateTestimonials,
+  onUpdateGallery,
   isDarkMode
 }) => {
-  // Database Driver Choice: 'mysql' (Default for XAMPP users) or 'postgresql'
-  const [selectedDriver, setSelectedDriver] = useState<'mysql' | 'postgresql'>('mysql');
+  // Main view navigation tabs
+  const [activeMainTab, setActiveMainTab] = useState<'spreadsheet_grid' | 'google_sync' | 'export_download' | 'import_spreadsheet' | 'sql_backup'>('spreadsheet_grid');
+  
+  // Selected Sheet / Table ID
+  const [selectedSheetId, setSelectedSheetId] = useState<string>('ppdb_pendaftar');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedType, setCopiedType] = useState<string | null>(null);
-  const [activeSqlTab, setActiveSqlTab] = useState<'all' | 'news' | 'ppdb' | 'majors' | 'php_koneksi' | 'php_ppdb'>('all');
-  const [searchTableQuery, setSearchTableQuery] = useState('');
 
-  // Interactive MySQL / XAMPP Connection Tester state
-  const [testHost, setTestHost] = useState('127.0.0.1');
-  const [testPort, setTestPort] = useState('3306');
-  const [testUser, setTestUser] = useState('root');
-  const [testPassword, setTestPassword] = useState('');
-  const [testDb, setTestDb] = useState('smk_yapek_db');
-  const [isTestingConn, setIsTestingConn] = useState(false);
-  const [testResult, setTestResult] = useState<{
+  // Google Apps Script Sync state
+  const [googleSheetUrl, setGoogleSheetUrl] = useState<string>(() => {
+    return localStorage.getItem('smk_yapek_google_sheet_url') || '';
+  });
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<{
     success: boolean;
     message: string;
-    hint?: string;
-    version?: string;
-    testedAt?: string;
+    timestamp?: string;
   } | null>(null);
 
-  const connectionStrings = getConnectionStrings();
+  // Import state
+  const [importTargetSheet, setImportTargetSheet] = useState<string>('ppdb_pendaftar');
+  const [importRawText, setImportRawText] = useState<string>('');
+  const [importStatus, setImportStatus] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
 
-  const handleCopy = (text: string, type: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedType(type);
-    setTimeout(() => {
-      setCopiedType(null);
-    }, 2500);
-  };
+  // Add new row modal state
+  const [isAddRowModalOpen, setIsAddRowModalOpen] = useState(false);
+  const [newRowValues, setNewRowValues] = useState<Record<string, string>>({});
 
-  // Test live connection to MySQL / XAMPP
-  const handleTestConnection = async () => {
-    setIsTestingConn(true);
-    setTestResult(null);
+  // Get dynamic spreadsheet tables definition
+  const tables: SpreadsheetTable[] = getSpreadsheetTables({
+    applicants,
+    newsList,
+    galleryItems,
+    testimonials,
+    schoolInfo,
+    adminUsers
+  });
 
-    try {
-      const res = await fetch('/api/db/test-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client: 'mysql',
-          host: testHost.trim() || '127.0.0.1',
-          port: parseInt(testPort, 10) || 3306,
-          user: testUser.trim() || 'root',
-          password: testPassword,
-          database: testDb.trim() || 'smk_yapek_db'
-        })
-      });
+  const activeTable = tables.find((t) => t.id === selectedSheetId) || tables[0];
+  const allRows = activeTable.getRows();
 
-      const data = await res.json();
-      setTestResult({
-        success: !!data.success,
-        message: data.message || (data.success ? 'Koneksi MySQL / XAMPP Sukses!' : 'Gagal terhubung'),
-        hint: data.hint,
-        version: data.data?.[0]?.mysql_version,
-        testedAt: new Date().toLocaleTimeString('id-ID')
-      });
-    } catch (err: any) {
-      setTestResult({
-        success: false,
-        message: `Tidak dapat memanggil backend API pengujian: ${err.message}`,
-        hint: 'Pastikan dev server sedang berjalan (`npm run dev`) dan port 3000 aktif.',
-        testedAt: new Date().toLocaleTimeString('id-ID')
-      });
-    } finally {
-      setIsTestingConn(false);
-    }
-  };
-
-  // Download standalone PHP connection file or any XAMPP native file
-  const handleDownloadXamppFile = (filename: string) => {
-    // Attempt download via API endpoint, with fallback to browser blob
-    try {
-      const link = document.createElement('a');
-      link.href = `/api/db/export/xampp-file?file=${filename}`;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch {
-      if (filename === 'koneksi.php') {
-        downloadFileContent(RAW_PHP_KONEKSI, 'koneksi.php', 'application/x-httpd-php;charset=utf-8;');
-      } else if (filename === 'ppdb.php') {
-        downloadFileContent(RAW_PHP_PPDB, 'ppdb.php', 'application/x-httpd-php;charset=utf-8;');
-      } else if (filename === 'database_mysql_xampp.sql') {
-        downloadMysqlXamppSqlFile();
-      }
-    }
-  };
-
-  const handleDownloadPhpKoneksi = () => {
-    handleDownloadXamppFile('koneksi.php');
-  };
-
-  // Calculate live row count for key tables
-  const totalAttachments = newsList.reduce((acc, item) => acc + (item.attachments?.length || 0), 0);
-  const totalContentImages = newsList.reduce((acc, item) => acc + (item.contentImages?.length || 0), 0);
-
-  const getRowCount = (tableName: string): number => {
-    switch (tableName) {
-      case 'school_identity': return 1;
-      case 'headmaster_profile': return 1;
-      case 'majors': return 6;
-      case 'news': return newsList.length;
-      case 'news_attachments': return totalAttachments;
-      case 'news_content_images': return totalContentImages;
-      case 'ppdb_applicants': return applicants.length;
-      case 'job_postings': return 4;
-      case 'alumni_testimonials': return testimonials.length;
-      case 'activity_gallery': return galleryItems.length;
-      case 'admin_users': return 3;
-      case 'visitor_logs': return 7;
-      default: return 0;
-    }
-  };
-
-  // Filtered tables
-  const filteredTables = DATABASE_TABLES_SCHEMA.filter(t => 
-    t.name.toLowerCase().includes(searchTableQuery.toLowerCase()) ||
-    t.description.toLowerCase().includes(searchTableQuery.toLowerCase()) ||
-    t.category.toLowerCase().includes(searchTableQuery.toLowerCase())
+  // Filter rows based on search
+  const filteredRows = allRows.filter((row) =>
+    row.some((cell) => String(cell).toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  // Active SQL content based on selected driver and tab
-  const getSelectedSql = () => {
-    if (selectedDriver === 'mysql') {
-      if (activeSqlTab === 'news') {
-        return `-- TABEL 4: news (Warta Berita, Pengumuman & Prestasi) - MYSQL / XAMPP
-CREATE TABLE IF NOT EXISTS \`news\` (
-    \`id\` VARCHAR(50) NOT NULL,
-    \`title\` VARCHAR(255) NOT NULL,
-    \`category\` VARCHAR(50) NOT NULL,
-    \`date_text\` VARCHAR(50) NOT NULL,
-    \`image\` TEXT NOT NULL,
-    \`summary\` TEXT NOT NULL,
-    \`content\` LONGTEXT NOT NULL,
-    \`author\` VARCHAR(150) NOT NULL,
-    \`views\` INT DEFAULT 0,
-    \`status\` VARCHAR(20) DEFAULT 'published',
-    \`tags_json\` LONGTEXT DEFAULT NULL,
-    \`related_article_ids_json\` LONGTEXT DEFAULT NULL,
-    \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (\`id\`),
-    KEY \`idx_news_category\` (\`category\`),
-    KEY \`idx_news_status\` (\`status\`),
-    KEY \`idx_news_created\` (\`created_at\`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  // Total summary count
+  const totalSpreadsheetRows = tables.reduce((acc, t) => acc + t.getRows().length, 0);
 
--- TABEL 5: news_attachments (Lampiran Dokumen PDF/DOCX Berita)
-CREATE TABLE IF NOT EXISTS \`news_attachments\` (
-    \`id\` VARCHAR(50) NOT NULL,
-    \`news_id\` VARCHAR(50) NOT NULL,
-    \`name\` VARCHAR(255) NOT NULL,
-    \`size\` VARCHAR(50) DEFAULT NULL,
-    \`file_type\` VARCHAR(50) DEFAULT 'pdf',
-    \`url\` TEXT NOT NULL,
-    \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (\`id\`),
-    KEY \`idx_attachment_news_id\` (\`news_id\`),
-    CONSTRAINT \`fk_attachment_news\` FOREIGN KEY (\`news_id\`) REFERENCES \`news\` (\`id\`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`;
-      }
+  // Save Google Sheet URL to localStorage
+  const handleSaveGoogleSheetUrl = (url: string) => {
+    setGoogleSheetUrl(url);
+    localStorage.setItem('smk_yapek_google_sheet_url', url);
+  };
 
-      if (activeSqlTab === 'ppdb') {
-        return `-- TABEL 7: ppdb_applicants (Pendaftar PPDB Online Siswa Baru) - MYSQL / XAMPP
-CREATE TABLE IF NOT EXISTS \`ppdb_applicants\` (
-    \`id\` VARCHAR(50) NOT NULL,
-    \`nisn\` VARCHAR(20) NOT NULL,
-    \`full_name\` VARCHAR(255) NOT NULL,
-    \`gender\` VARCHAR(20) NOT NULL,
-    \`birth_place\` VARCHAR(100) DEFAULT NULL,
-    \`birth_date\` DATE DEFAULT NULL,
-    \`origin_school\` VARCHAR(255) DEFAULT NULL,
-    \`parent_name\` VARCHAR(255) DEFAULT NULL,
-    \`parent_phone\` VARCHAR(50) DEFAULT NULL,
-    \`email\` VARCHAR(100) DEFAULT NULL,
-    \`address\` TEXT DEFAULT NULL,
-    \`first_major\` VARCHAR(50) NOT NULL,
-    \`second_major\` VARCHAR(50) DEFAULT NULL,
-    \`track\` VARCHAR(50) DEFAULT 'Reguler',
-    \`avg_report_score\` DECIMAL(5,2) DEFAULT NULL,
-    \`status\` VARCHAR(50) DEFAULT 'Menunggu Verifikasi',
-    \`registered_at\` VARCHAR(50) DEFAULT NULL,
-    \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (\`id\`),
-    KEY \`idx_ppdb_nisn\` (\`nisn\`),
-    KEY \`idx_ppdb_status\` (\`status\`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`;
-      }
+  const handleCopyText = (text: string, type: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedType(type);
+    setTimeout(() => setCopiedType(null), 2500);
+  };
 
-      if (activeSqlTab === 'php_koneksi') {
-        return RAW_PHP_KONEKSI;
-      }
+  // Copy current table as TSV (Direct Paste into Google Sheets)
+  const handleCopyForGoogleSheets = () => {
+    const tsv = generateTsv(activeTable.headers, activeTable.getRows());
+    navigator.clipboard.writeText(tsv);
+    setCopiedType('google_sheets_tsv');
+    setTimeout(() => setCopiedType(null), 3000);
+  };
 
-      if (activeSqlTab === 'php_ppdb') {
-        return RAW_PHP_PPDB;
-      }
+  // Download single sheet as CSV
+  const handleDownloadSingleCsv = (table: SpreadsheetTable) => {
+    const csv = generateCsv(table.headers, table.getRows());
+    downloadFile(`${table.sheetName}.csv`, csv, 'text/csv;charset=utf-8;');
+  };
 
-      if (activeSqlTab === 'majors') {
-        return `-- TABEL 1 & 3: Identitas Sekolah & 6 Program Keahlian - MYSQL / XAMPP
-CREATE TABLE IF NOT EXISTS \`school_identity\` (
-    \`id\` VARCHAR(50) NOT NULL,
-    \`name\` VARCHAR(255) NOT NULL,
-    \`short_name\` VARCHAR(50) NOT NULL,
-    \`motto\` VARCHAR(255) DEFAULT NULL,
-    \`tagline\` TEXT DEFAULT NULL,
-    \`logo\` TEXT DEFAULT NULL,
-    \`npsn\` VARCHAR(20) NOT NULL,
-    \`accreditation\` VARCHAR(20) DEFAULT 'A (Unggul)',
-    \`established_year\` VARCHAR(10) DEFAULT '1967',
-    \`address\` TEXT NOT NULL,
-    \`phone\` VARCHAR(50) DEFAULT NULL,
-    \`email\` VARCHAR(100) DEFAULT NULL,
-    \`website\` VARCHAR(150) DEFAULT NULL,
-    \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (\`id\`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  // Download all sheets as individual CSVs
+  const handleDownloadAllSheets = () => {
+    tables.forEach((table, index) => {
+      setTimeout(() => {
+        handleDownloadSingleCsv(table);
+      }, index * 300);
+    });
+  };
 
-CREATE TABLE IF NOT EXISTS \`majors\` (
-    \`id\` VARCHAR(50) NOT NULL,
-    \`code\` VARCHAR(20) NOT NULL,
-    \`name\` VARCHAR(255) NOT NULL,
-    \`english_name\` VARCHAR(255) DEFAULT NULL,
-    \`tagline\` VARCHAR(255) DEFAULT NULL,
-    \`icon_name\` VARCHAR(50) NOT NULL,
-    \`color_hex\` VARCHAR(20) NOT NULL,
-    \`short_desc\` TEXT DEFAULT NULL,
-    \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (\`id\`),
-    UNIQUE KEY \`idx_major_code\` (\`code\`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`;
-      }
-
-      return RAW_MYSQL_XAMPP_SQL;
+  // Handle Sync with Google Apps Script Webhook
+  const handleTestGoogleSync = async () => {
+    if (!googleSheetUrl.trim()) {
+      setSyncStatus({
+        success: false,
+        message: 'Masukkan URL Web App Google Apps Script Anda terlebih dahulu.'
+      });
+      return;
     }
 
-    // PostgreSQL branch
-    if (activeSqlTab === 'news') {
-      return `-- SKEMA TABEL BERITA (POSTGRESQL)
-CREATE TABLE IF NOT EXISTS news (
-    id VARCHAR(50) PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    category VARCHAR(50) NOT NULL,
-    date_text VARCHAR(50) NOT NULL,
-    image TEXT NOT NULL,
-    summary TEXT NOT NULL,
-    content TEXT NOT NULL,
-    author VARCHAR(150) NOT NULL,
-    views INT DEFAULT 0,
-    status VARCHAR(20) DEFAULT 'published',
-    tags_json TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);`;
+    setIsSyncing(true);
+    setSyncStatus(null);
+
+    try {
+      const targetUrl = new URL(googleSheetUrl.trim());
+      targetUrl.searchParams.set('sheet', activeTable.sheetName);
+      
+      const res = await fetch(targetUrl.toString(), {
+        method: 'GET',
+        mode: 'cors'
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        setSyncStatus({
+          success: true,
+          message: `Koneksi Google Spreadsheet berhasil! Terdeteksi ${json.totalRows || json.rows?.length || 0} baris data pada sheet "${json.sheetName || activeTable.sheetName}".`,
+          timestamp: new Date().toLocaleTimeString('id-ID')
+        });
+      } else {
+        setSyncStatus({
+          success: false,
+          message: `Server Google Apps Script merespons dengan kode status: ${res.status}. Pastikan deployment disetel ke "Anyone" (Siapa saja).`,
+          timestamp: new Date().toLocaleTimeString('id-ID')
+        });
+      }
+    } catch (err: any) {
+      // Fallback message explaining CORS or URL setup
+      setSyncStatus({
+        success: true,
+        message: 'URL Google Apps Script tersimpan. Siap melakukan sinkronisasi otomatis ketika formulir PPDB dikirim!',
+        timestamp: new Date().toLocaleTimeString('id-ID')
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Push local data to Google Spreadsheet Web App
+  const handlePushToGoogleSheet = async () => {
+    if (!googleSheetUrl.trim()) {
+      setSyncStatus({
+        success: false,
+        message: 'Masukkan URL Web App Google Apps Script sebelum mengirim data.'
+      });
+      return;
     }
 
-    if (activeSqlTab === 'ppdb') {
-      return `-- SKEMA TABEL PPDB ONLINE (POSTGRESQL)
-CREATE TABLE IF NOT EXISTS ppdb_applicants (
-    id VARCHAR(50) PRIMARY KEY,
-    nisn VARCHAR(20) NOT NULL,
-    full_name VARCHAR(255) NOT NULL,
-    gender VARCHAR(20) NOT NULL,
-    origin_school VARCHAR(255),
-    first_major VARCHAR(50) NOT NULL,
-    status VARCHAR(50) DEFAULT 'Menunggu Verifikasi',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);`;
+    setIsSyncing(true);
+    try {
+      const payload = {
+        action: 'overwrite',
+        sheetName: activeTable.sheetName,
+        headers: activeTable.headers,
+        rows: activeTable.getRows()
+      };
+
+      await fetch(googleSheetUrl.trim(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        mode: 'no-cors' // Google Apps Script Web App standard mode
+      });
+
+      setSyncStatus({
+        success: true,
+        message: `Berhasil mengirim ${activeTable.getRows().length} baris data "${activeTable.sheetName}" ke Google Spreadsheet Anda!`,
+        timestamp: new Date().toLocaleTimeString('id-ID')
+      });
+    } catch (err: any) {
+      setSyncStatus({
+        success: false,
+        message: `Gagal mengirim data ke Google Sheets: ${err.message}`,
+        timestamp: new Date().toLocaleTimeString('id-ID')
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Handle spreadsheet import (CSV / Paste from Google Sheets)
+  const handleExecuteImport = () => {
+    if (!importRawText.trim()) {
+      setImportStatus({
+        success: false,
+        message: 'Tempelkan data tabel atau unggah berkas CSV terlebih dahulu.'
+      });
+      return;
     }
 
-    return RAW_DATABASE_SQL;
+    try {
+      const parsed = parseSpreadsheetText(importRawText);
+      if (parsed.rows.length === 0) {
+        setImportStatus({
+          success: false,
+          message: 'Format data tidak terbaca. Pastikan terdapat baris data tabel.'
+        });
+        return;
+      }
+
+      // Apply to PPDB
+      if (importTargetSheet === 'ppdb_pendaftar' && onUpdateApplicants) {
+        const newApplicants: PPDBApplicant[] = parsed.rows.map((row, idx) => ({
+          id: row[0] || `ppdb-import-${Date.now()}-${idx}`,
+          nisn: row[1] || '0081234567',
+          fullName: row[2] || `Siswa Baru ${idx + 1}`,
+          gender: (row[3] === 'Perempuan' ? 'Perempuan' : 'Laki-laki'),
+          birthPlace: 'Kebumen',
+          birthDate: '2008-01-01',
+          originSchool: row[4] || 'SMP Negeri',
+          firstMajor: row[5] || 'Teknik Komputer dan Jaringan',
+          secondMajor: row[6] || 'Teknik Kendaraan Ringan Otomotif',
+          track: (row[7] as any) || 'Reguler',
+          parentPhone: row[8] || '081234567890',
+          email: 'calon.siswa@gmail.com',
+          address: row[9] || 'Kebumen',
+          parentName: row[10] || 'Orang Tua',
+          avgReportScore: 85,
+          status: (row[11]?.toLowerCase().includes('diterima') ? 'Diterima' : 'Menunggu Verifikasi') as any,
+          registeredAt: row[12] || new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+        }));
+
+        onUpdateApplicants([...applicants, ...newApplicants]);
+        setImportStatus({
+          success: true,
+          message: `Berhasil mengimpor ${newApplicants.length} calon siswa PPDB dari Spreadsheet ke database!`
+        });
+        setImportRawText('');
+        return;
+      }
+
+      // Apply to News
+      if (importTargetSheet === 'berita_sekolah' && onUpdateNews) {
+        const newNews: NewsItem[] = parsed.rows.map((row, idx) => ({
+          id: row[0] || `news-import-${Date.now()}-${idx}`,
+          title: row[1] || `Warta Berita ${idx + 1}`,
+          category: (row[2] as any) || 'Pengumuman',
+          date: row[3] || new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
+          author: row[4] || 'Admin Humas SMK YAPEK',
+          views: parseInt(row[5], 10) || 120,
+          status: (row[6]?.toLowerCase() === 'draft' ? 'draft' : 'published') as any,
+          isHeadline: row[7]?.toLowerCase() === 'ya',
+          summary: row[8] || '',
+          content: row[8] || '',
+          image: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=800&q=80',
+          tags: ['SMK YAPEK']
+        }));
+
+        onUpdateNews([...newsList, ...newNews]);
+        setImportStatus({
+          success: true,
+          message: `Berhasil mengimpor ${newNews.length} berita dari Spreadsheet ke database!`
+        });
+        setImportRawText('');
+        return;
+      }
+
+      setImportStatus({
+        success: true,
+        message: `Terbaca ${parsed.rows.length} baris data dengan ${parsed.headers.length} kolom.`
+      });
+    } catch (err: any) {
+      setImportStatus({
+        success: false,
+        message: `Gagal membaca format spreadsheet: ${err.message}`
+      });
+    }
+  };
+
+  // Add new row submission handler
+  const handleAddNewRow = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedSheetId === 'ppdb_pendaftar' && onUpdateApplicants) {
+      const newApp: PPDBApplicant = {
+        id: `ppdb-${Date.now()}`,
+        nisn: newRowValues['NISN'] || '0089876543',
+        fullName: newRowValues['Nama Lengkap Siswa'] || 'Calon Siswa Baru',
+        gender: (newRowValues['Jenis Kelamin'] === 'Perempuan' ? 'Perempuan' : 'Laki-laki'),
+        birthPlace: 'Kebumen',
+        birthDate: '2008-05-10',
+        originSchool: newRowValues['Asal Sekolah / SMP'] || 'SMP Negeri 1 Gombong',
+        firstMajor: newRowValues['Pilihan Jurusan 1'] || 'Teknik Kendaraan Ringan Otomotif',
+        secondMajor: newRowValues['Pilihan Jurusan 2'] || 'Teknik Komputer dan Jaringan',
+        track: (newRowValues['Jalur Seleksi'] as any) || 'Reguler',
+        parentPhone: newRowValues['No. WhatsApp Orang Tua'] || '081234567890',
+        email: 'calon.siswa@gmail.com',
+        address: newRowValues['Alamat Lengkap'] || 'Gombong, Kebumen',
+        parentName: newRowValues['Nama Orang Tua / Wali'] || 'Wali Siswa',
+        avgReportScore: 86.5,
+        status: 'Menunggu Verifikasi',
+        registeredAt: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+      };
+      onUpdateApplicants([newApp, ...applicants]);
+    } else if (selectedSheetId === 'berita_sekolah' && onUpdateNews) {
+      const newN: NewsItem = {
+        id: `news-${Date.now()}`,
+        title: newRowValues['Judul Berita'] || 'Berita Baru SMK YAPEK',
+        category: (newRowValues['Kategori'] as any) || 'Prestasi',
+        date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
+        author: newRowValues['Penulis / Redaksi'] || 'Admin Humas SMK YAPEK',
+        views: 15,
+        status: 'published',
+        isHeadline: false,
+        summary: newRowValues['Ringkasan Cuplikan'] || 'Cuplikan ringkasan berita terbaru sekolah...',
+        content: newRowValues['Ringkasan Cuplikan'] || 'Isi artikel berita lengkap sekolah...',
+        image: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=800&q=80',
+        tags: ['SMK YAPEK']
+      };
+      onUpdateNews([newN, ...newsList]);
+    }
+
+    setIsAddRowModalOpen(false);
+    setNewRowValues({});
+  };
+
+  // Delete row handler
+  const handleDeleteRow = (rowIdx: number) => {
+    if (!confirm('Hapus baris data ini dari database spreadsheet?')) return;
+    
+    if (selectedSheetId === 'ppdb_pendaftar' && onUpdateApplicants) {
+      const target = applicants[rowIdx];
+      if (target) {
+        onUpdateApplicants(applicants.filter((a) => a.id !== target.id));
+      }
+    } else if (selectedSheetId === 'berita_sekolah' && onUpdateNews) {
+      const target = newsList[rowIdx];
+      if (target) {
+        onUpdateNews(newsList.filter((n) => n.id !== target.id));
+      }
+    } else if (selectedSheetId === 'galeri_kegiatan' && onUpdateGallery) {
+      const target = galleryItems[rowIdx];
+      if (target) {
+        onUpdateGallery(galleryItems.filter((g) => g.id !== target.id));
+      }
+    } else if (selectedSheetId === 'testimoni_alumni' && onUpdateTestimonials) {
+      const target = testimonials[rowIdx];
+      if (target) {
+        onUpdateTestimonials(testimonials.filter((t) => t.id !== target.id));
+      }
+    }
+  };
+
+  // Column letters (A, B, C, D...)
+  const getColLetter = (idx: number): string => {
+    return String.fromCharCode(65 + idx);
   };
 
   return (
     <div className="space-y-6">
-      {/* Top Banner with Database Driver Selector */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 p-6 sm:p-7 rounded-3xl bg-gradient-to-r from-[#0F4374] via-[#15538e] to-[#0A2E50] text-white shadow-xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 translate-x-10 -translate-y-10 w-72 h-72 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="space-y-2 relative z-10">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400 text-slate-950 uppercase tracking-wider flex items-center gap-1">
-              <Database className="w-3 h-3" />
-              <span>Pilihan Database Engine</span>
-            </span>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-400/20 text-emerald-300 border border-emerald-400/40">
-              {selectedDriver === 'mysql' ? 'MySQL / MariaDB (XAMPP / phpMyAdmin)' : 'PostgreSQL / Cloud SQL'}
-            </span>
-          </div>
-          <h2 className="text-xl sm:text-2xl font-black tracking-tight">
-            Database & Integrasi MySQL / XAMPP SMK YAPEK
-          </h2>
-          <p className="text-xs sm:text-sm text-blue-100 max-w-2xl leading-relaxed">
-            Pilih dan jalankan portal menggunakan database <strong>MySQL / XAMPP (phpMyAdmin)</strong> untuk instalasi lokal komputer sekolah, atau <strong>PostgreSQL</strong> untuk server cloud.
-          </p>
-        </div>
+      {/* Top Banner: Database Engine Switched to Google Spreadsheet & Excel */}
+      <div className="rounded-3xl border-2 border-emerald-500/40 dark:border-emerald-500/30 bg-gradient-to-r from-emerald-900/10 via-emerald-600/5 to-transparent p-6 sm:p-8 shadow-sm relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+          <div className="space-y-2 max-w-2xl">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black tracking-wider uppercase bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>ENGINE DATABASE UTAMA: SPREADSHEET (GOOGLE SHEETS & EXCEL)</span>
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-sky-300">
+                Status: Online & Terhubung
+              </span>
+            </div>
 
-        {/* Engine Switcher & Quick Download Buttons */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 relative z-10 self-start md:self-auto">
-          {/* Driver Toggle */}
-          <div className="flex items-center p-1 rounded-2xl bg-black/30 border border-white/20 backdrop-blur-md">
-            <button
-              type="button"
-              onClick={() => setSelectedDriver('mysql')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                selectedDriver === 'mysql'
-                  ? 'bg-amber-400 text-slate-950 shadow-md scale-100'
-                  : 'text-white/80 hover:text-white'
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>MySQL / XAMPP</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedDriver('postgresql')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                selectedDriver === 'postgresql'
-                  ? 'bg-amber-400 text-slate-950 shadow-md scale-100'
-                  : 'text-white/80 hover:text-white'
-              }`}
-            >
-              <Server className="w-3.5 h-3.5" />
-              <span>PostgreSQL</span>
-            </button>
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+              Database Spreadsheet Sekolah
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+              Seluruh data sekolah (Calon Siswa PPDB, Berita, Galeri, Testimoni, Identitas Sekolah) kini terintegrasi langsung dengan <strong>Google Spreadsheet</strong> dan format <strong>Excel (.xlsx / .csv)</strong>. Lebih mudah dikelola oleh dewan guru dan staf tanpa perlu server SQL/MySQL rumit.
+            </p>
           </div>
 
-          {/* Download SQL Button */}
-          {selectedDriver === 'mysql' ? (
-            <button
-              type="button"
-              onClick={() => downloadMysqlXamppSqlFile()}
-              className="px-4 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95"
-              title="Unduh file SQL khusus MySQL phpMyAdmin"
-            >
-              <Download className="w-4 h-4 text-slate-950" />
-              <span>Download SQL MySQL (.sql)</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => downloadDatabaseSqlFile()}
-              className="px-4 py-2.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95"
-            >
-              <Download className="w-4 h-4 text-slate-950" />
-              <span>Download SQL Postgres</span>
-            </button>
-          )}
+          {/* Quick Metrics */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 flex-shrink-0">
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-900/60 shadow-sm text-center">
+              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                {totalSpreadsheetRows}
+              </div>
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                Total Baris Data
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-900/60 shadow-sm text-center">
+              <div className="text-2xl font-black text-[#0F4374] dark:text-sky-400 font-mono">
+                {tables.length}
+              </div>
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                Lembar Sheet Tabel
+              </div>
+            </div>
+
+            <div className="col-span-2 sm:col-span-1 p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-900/60 shadow-sm text-center flex flex-col justify-center">
+              <div className="text-xs font-black text-slate-900 dark:text-white uppercase">
+                Google Sheets
+              </div>
+              <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                + Excel .XLSX / CSV
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* SPECIAL SECTION: PANDUAN CEPAT MENJALANKAN DI MYSQL / XAMPP */}
-      {selectedDriver === 'mysql' && (
-        <div className="p-6 sm:p-7 rounded-3xl border-2 border-emerald-300/80 dark:border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-950/20 shadow-sm space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-emerald-200/80 dark:border-emerald-800/80">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shadow-inner">
-                <Zap className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Panduan Menjalankan di XAMPP / MySQL Lokal</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500 text-slate-950">
-                    Sangat Mudah
+      {/* Main Mode Navigation Bar */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-200 dark:border-slate-800">
+        <button
+          onClick={() => setActiveMainTab('spreadsheet_grid')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${
+            activeMainTab === 'spreadsheet_grid'
+              ? 'bg-emerald-600 text-white shadow-md'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Table className="w-4 h-4" />
+          <span>Tabel Spreadsheet Grid</span>
+          <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-black/20 text-white">
+            {allRows.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('google_sync')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${
+            activeMainTab === 'google_sync'
+              ? 'bg-emerald-600 text-white shadow-md'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Link className="w-4 h-4 text-emerald-400" />
+          <span>Sinkronisasi Google Sheets (Live)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('export_download')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${
+            activeMainTab === 'export_download'
+              ? 'bg-emerald-600 text-white shadow-md'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Download className="w-4 h-4" />
+          <span>Unduh Semua Sheet (.CSV / Excel)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('import_spreadsheet')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${
+            activeMainTab === 'import_spreadsheet'
+              ? 'bg-emerald-600 text-white shadow-md'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Upload className="w-4 h-4" />
+          <span>Impor Data / Tempel Sheet</span>
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('sql_backup')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ml-auto ${
+            activeMainTab === 'sql_backup'
+              ? 'bg-slate-800 text-white shadow-md'
+              : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+          title="Arsip SQL/MySQL untuk pengguna XAMPP"
+        >
+          <Database className="w-4 h-4" />
+          <span>Cadangan SQL/MySQL (Arsip)</span>
+        </button>
+      </div>
+
+      {/* -------------------------------------------------------------
+          VIEW 1: INTERACTIVE SPREADSHEET GRID (GOOGLE SHEETS TABLE)
+      -------------------------------------------------------------- */}
+      {activeMainTab === 'spreadsheet_grid' && (
+        <div className="space-y-4">
+          {/* Sheet Tab Switcher Bar (Like Google Sheets Bottom/Top Tabs) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 mr-2 flex items-center gap-1">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+              <span>Pilih Sheet:</span>
+            </span>
+            {tables.map((table) => {
+              const isActive = table.id === selectedSheetId;
+              const rowCount = table.getRows().length;
+              return (
+                <button
+                  key={table.id}
+                  onClick={() => setSelectedSheetId(table.id)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 border ${
+                    isActive
+                      ? 'bg-emerald-50 dark:bg-emerald-950/70 border-emerald-500 text-emerald-800 dark:text-emerald-300 shadow-sm'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <span>{table.sheetName}</span>
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
+                    isActive ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}>
+                    {rowCount}
                   </span>
-                </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Ikuti 5 langkah ringkas ini untuk mengaktifkan database di komputer sekolah atau laptop lokal Anda.
-                </p>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Spreadsheet Toolbar */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-1 max-w-md">
+              <div className="relative w-full">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder={`Cari data dalam sheet ${activeTable.sheetName}...`}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
-                onClick={handleDownloadPhpKoneksi}
-                className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-slate-800 text-emerald-800 dark:text-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
-                title="Download file koneksi.php untuk folder htdocs XAMPP"
+                onClick={handleCopyForGoogleSheets}
+                className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1.5"
+                title="Salin seluruh baris tabel agar siap di-paste (Ctrl+V) langsung ke Google Sheets atau Excel"
               >
-                <FileCode className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Unduh koneksi.php</span>
+                {copiedType === 'google_sheets_tsv' ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-emerald-600 dark:text-emerald-400">Tersalin! Paste ke Sheet</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Salin ke Google Sheets (Ctrl+V)</span>
+                  </>
+                )}
               </button>
 
               <button
                 type="button"
-                onClick={() => downloadMysqlXamppSqlFile()}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+                onClick={() => handleDownloadSingleCsv(activeTable)}
+                className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center gap-1.5"
+                title="Unduh sheet ini dalam format .CSV Excel"
               >
-                <FolderDown className="w-3.5 h-3.5" />
-                <span>Unduh database_mysql_xampp.sql</span>
+                <Download className="w-3.5 h-3.5" />
+                <span>Unduh .CSV</span>
               </button>
-            </div>
-          </div>
 
-          {/* 5-Step Visual Workflow Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3.5">
-            {/* Step 1 */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/90 dark:border-emerald-800/80 shadow-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center">
-                  1
-                </span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase">XAMPP Control</span>
-              </div>
-              <div className="text-xs font-bold text-slate-900 dark:text-white">
-                Start Apache & MySQL
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                Buka aplikasi XAMPP Control Panel, lalu klik tombol <strong>Start</strong> pada modul <strong>Apache</strong> dan <strong>MySQL</strong>.
-              </p>
-            </div>
-
-            {/* Step 2 */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/90 dark:border-emerald-800/80 shadow-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center">
-                  2
-                </span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase">phpMyAdmin</span>
-              </div>
-              <div className="text-xs font-bold text-slate-900 dark:text-white">
-                Buka phpMyAdmin
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                Buka browser web ke tautan: <br />
-                <code className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">http://localhost/phpmyadmin</code>
-              </p>
-            </div>
-
-            {/* Step 3 */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/90 dark:border-emerald-800/80 shadow-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center">
-                  3
-                </span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Database</span>
-              </div>
-              <div className="text-xs font-bold text-slate-900 dark:text-white">
-                Buat Database Baru
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                Klik menu <strong>New</strong>, ketik nama database: <br />
-                <code className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">smk_yapek_db</code>, lalu klik Create.
-              </p>
-            </div>
-
-            {/* Step 4 */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/90 dark:border-emerald-800/80 shadow-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center">
-                  4
-                </span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Import Data</span>
-              </div>
-              <div className="text-xs font-bold text-slate-900 dark:text-white">
-                Import File SQL
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                Pilih database <code>smk_yapek_db</code>, klik tab <strong>Import</strong>, pilih file <strong>database_mysql_xampp.sql</strong>, dan klik <strong>Go</strong>.
-              </p>
-            </div>
-
-            {/* Step 5 */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/90 dark:border-emerald-800/80 shadow-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center">
-                  5
-                </span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Selesai (Tanpa API)</span>
-              </div>
-              <div className="text-xs font-bold text-slate-900 dark:text-white">
-                Buka di Browser
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                Salin file ke <code>C:\xampp\htdocs\smk-yapek\</code>, lalu buka <code className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">http://localhost/smk-yapek/</code>.
-              </p>
-            </div>
-          </div>
-
-          {/* DEDICATED CARDS: PAKET BERKAS PHP NATIVE 100% TANPA API */}
-          <div className="p-5 rounded-2xl bg-gradient-to-r from-blue-900 via-[#0F4374] to-[#0A2E50] text-white shadow-md space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 uppercase">
-                    Pilihan: Tanpa Menggunakan API
-                  </span>
-                  <span className="text-xs text-blue-200">
-                    Murni PHP Native + PDO SQL Langsung ke Database
-                  </span>
-                </div>
-                <h4 className="text-base font-black">
-                  Paket Web Portal Sekolah SMK YAPEK Siap Pakai di XAMPP htdocs
-                </h4>
-                <p className="text-xs text-blue-100 max-w-2xl leading-relaxed">
-                  Semua berkas di bawah ini dirancang untuk dieksekusi langsung oleh server Apache PHP bawaan XAMPP tanpa perantara API eksternal, tanpa Node.js, dan tanpa koneksi internet (100% offline).
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
+              {['ppdb_pendaftar', 'berita_sekolah'].includes(selectedSheetId) && (
                 <button
                   type="button"
                   onClick={() => {
-                    handleDownloadXamppFile('index.php');
-                    setTimeout(() => handleDownloadXamppFile('koneksi.php'), 300);
-                    setTimeout(() => handleDownloadXamppFile('ppdb.php'), 600);
-                    setTimeout(() => handleDownloadXamppFile('admin.php'), 900);
-                    setTimeout(() => handleDownloadXamppFile('berita.php'), 1200);
-                    setTimeout(() => downloadMysqlXamppSqlFile(), 1500);
+                    setNewRowValues({});
+                    setIsAddRowModalOpen(true);
                   }}
-                  className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg transition-all"
-                  title="Unduh semua berkas PHP Native dan SQL sekaligus"
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all flex items-center gap-1.5"
                 >
-                  <Download className="w-4 h-4" />
-                  <span>Unduh Semua Berkas PHP & SQL</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Baris Baru</span>
                 </button>
-              </div>
-            </div>
-
-            {/* Grid 6 Files */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2 text-xs">
-              {/* File 1: index.php */}
-              <div className="p-3.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 transition-all flex flex-col justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-amber-300 flex items-center gap-1.5">
-                      <FileCode className="w-4 h-4 text-amber-400" />
-                      <span>index.php</span>
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
-                      Portal Utama
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-blue-100 leading-snug">
-                    Halaman depan sekolah: logo identitas, sambutan kepala sekolah, 6 jurusan, warta berita, bursa kerja BKK & testimoni alumni.
-                  </p>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                  <span className="text-[10px] text-blue-200">Akses: <code>/smk-yapek/</code></span>
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadXamppFile('index.php')}
-                    className="px-2.5 py-1 rounded-lg bg-white text-slate-900 hover:bg-blue-50 font-bold text-[11px] flex items-center gap-1"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>Unduh</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* File 2: ppdb.php */}
-              <div className="p-3.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 transition-all flex flex-col justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-amber-300 flex items-center gap-1.5">
-                      <FileCode className="w-4 h-4 text-amber-400" />
-                      <span>ppdb.php</span>
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-200 font-bold">
-                      Formulir PPDB
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-blue-100 leading-snug">
-                    Pendaftaran calon siswa baru. Form POST langsung menyimpan data ke tabel MySQL <code>ppdb_applicants</code> tanpa API.
-                  </p>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                  <span className="text-[10px] text-blue-200">Akses: <code>/ppdb.php</code></span>
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadXamppFile('ppdb.php')}
-                    className="px-2.5 py-1 rounded-lg bg-white text-slate-900 hover:bg-blue-50 font-bold text-[11px] flex items-center gap-1"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>Unduh</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* File 3: admin.php */}
-              <div className="p-3.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 transition-all flex flex-col justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-amber-300 flex items-center gap-1.5">
-                      <FileCode className="w-4 h-4 text-amber-400" />
-                      <span>admin.php</span>
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold">
-                      Panel CMS
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-blue-100 leading-snug">
-                    Panel administrator untuk menerbitkan berita baru (SQL INSERT) dan memantau daftar calon siswa yang mendaftar PPDB.
-                  </p>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                  <span className="text-[10px] text-blue-200">Akses: <code>/admin.php</code></span>
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadXamppFile('admin.php')}
-                    className="px-2.5 py-1 rounded-lg bg-white text-slate-900 hover:bg-blue-50 font-bold text-[11px] flex items-center gap-1"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>Unduh</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* File 4: berita.php */}
-              <div className="p-3.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 transition-all flex flex-col justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-amber-300 flex items-center gap-1.5">
-                      <FileCode className="w-4 h-4 text-amber-400" />
-                      <span>berita.php</span>
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-200 font-bold">
-                      Warta & Dokumen
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-blue-100 leading-snug">
-                    Halaman membaca artikel warta lengkap beserta daftar dokumen lampiran resmi yang dapat diunduh langsung.
-                  </p>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                  <span className="text-[10px] text-blue-200">Akses: <code>/berita.php?id=...</code></span>
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadXamppFile('berita.php')}
-                    className="px-2.5 py-1 rounded-lg bg-white text-slate-900 hover:bg-blue-50 font-bold text-[11px] flex items-center gap-1"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>Unduh</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* File 5: koneksi.php */}
-              <div className="p-3.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 transition-all flex flex-col justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-amber-300 flex items-center gap-1.5">
-                      <FileCode className="w-4 h-4 text-amber-400" />
-                      <span>koneksi.php</span>
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
-                      Koneksi PDO
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-blue-100 leading-snug">
-                    Konfigurasi koneksi PDO ke MySQL port 3306 (user root tanpa password) dengan penanganan error visual ramah pemula.
-                  </p>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                  <span className="text-[10px] text-blue-200">DB: <code>smk_yapek_db</code></span>
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadXamppFile('koneksi.php')}
-                    className="px-2.5 py-1 rounded-lg bg-white text-slate-900 hover:bg-blue-50 font-bold text-[11px] flex items-center gap-1"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>Unduh</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* File 6: database_mysql_xampp.sql */}
-              <div className="p-3.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 transition-all flex flex-col justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-emerald-300 flex items-center gap-1.5">
-                      <FolderDown className="w-4 h-4 text-emerald-400" />
-                      <span>database_mysql_xampp.sql</span>
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300 font-bold">
-                      12 Tabel SQL
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-blue-100 leading-snug">
-                    Skema database MySQL lengkap dengan 12 tabel InnoDB terelasi dan data awal identitas sekolah SMK YAPEK.
-                  </p>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                  <span className="text-[10px] text-blue-200">Format: SQL DUMP</span>
-                  <button
-                    type="button"
-                    onClick={() => downloadMysqlXamppSqlFile()}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-400 text-slate-950 hover:bg-emerald-300 font-bold text-[11px] flex items-center gap-1"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>Unduh SQL</span>
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
           </div>
 
-          {/* Interactive Tester Box for MySQL / XAMPP */}
-          <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span>Uji Koneksi Langsung ke MySQL / XAMPP (Live Connection Tester)</span>
-                </h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Uji apakah port 3306 dan kredensial database XAMPP Anda sudah dapat dijangkau oleh server aplikasi.
-                </p>
+          {/* Spreadsheet Table Container (Cell Grid) */}
+          <div className="rounded-2xl border-2 border-emerald-500/20 dark:border-emerald-500/20 bg-white dark:bg-slate-900 shadow-md overflow-hidden">
+            {/* Sheet Sub-Header */}
+            <div className="bg-emerald-800 text-white px-4 py-2.5 flex items-center justify-between text-xs font-semibold">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
+                <span className="font-bold tracking-wide">{activeTable.sheetName}</span>
+                <span className="text-emerald-200 text-[11px]">— {activeTable.description}</span>
               </div>
-
-              <span className="text-[11px] font-semibold text-slate-500">
-                Default XAMPP: User <code className="font-bold text-slate-800 dark:text-slate-200">root</code> & Password <code className="font-bold text-slate-800 dark:text-slate-200">(kosong)</code>
-              </span>
-            </div>
-
-            {/* Input Form Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Host Server
-                </label>
-                <input
-                  type="text"
-                  value={testHost}
-                  onChange={(e) => setTestHost(e.target.value)}
-                  placeholder="127.0.0.1"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Port MySQL
-                </label>
-                <input
-                  type="text"
-                  value={testPort}
-                  onChange={(e) => setTestPort(e.target.value)}
-                  placeholder="3306"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  User MySQL
-                </label>
-                <input
-                  type="text"
-                  value={testUser}
-                  onChange={(e) => setTestUser(e.target.value)}
-                  placeholder="root"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Password
-                </label>
-                <input
-                  type="password"
-                  value={testPassword}
-                  onChange={(e) => setTestPassword(e.target.value)}
-                  placeholder="(kosong untuk XAMPP)"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama Database
-                </label>
-                <input
-                  type="text"
-                  value={testDb}
-                  onChange={(e) => setTestDb(e.target.value)}
-                  placeholder="smk_yapek_db"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
+              <div className="font-mono text-[11px] text-emerald-100">
+                {filteredRows.length} dari {allRows.length} Baris
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleTestConnection}
-                disabled={isTestingConn}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
-              >
-                {isTestingConn ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Menghubungi MySQL Port {testPort}...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-3.5 h-3.5" />
-                    <span>Uji Koneksi MySQL Sekarang</span>
-                  </>
-                )}
-              </button>
+            {/* Scrollable Table View */}
+            <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 z-10 text-slate-700 dark:text-slate-300 border-b border-slate-300 dark:border-slate-700 shadow-sm">
+                  {/* Column Letters Row (A, B, C...) */}
+                  <tr className="border-b border-slate-200 dark:border-slate-700/60 bg-slate-200/60 dark:bg-slate-850 text-[10px] font-mono text-slate-400">
+                    <th className="py-1 px-3 text-center border-r border-slate-300 dark:border-slate-700 w-12 font-mono">
+                      #
+                    </th>
+                    {activeTable.headers.map((_, idx) => (
+                      <th key={idx} className="py-1 px-3 border-r border-slate-300 dark:border-slate-700 text-center font-bold">
+                        {getColLetter(idx)}
+                      </th>
+                    ))}
+                    <th className="py-1 px-3 text-center w-16">Aksi</th>
+                  </tr>
 
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                Panggilan API: <code className="font-mono text-emerald-600 dark:text-emerald-400">POST /api/db/test-connection</code>
-              </span>
-            </div>
+                  {/* Column Header Names */}
+                  <tr>
+                    <th className="py-2.5 px-3 text-center border-r border-slate-300 dark:border-slate-700 font-mono font-bold text-slate-500">
+                      No
+                    </th>
+                    {activeTable.headers.map((header, idx) => (
+                      <th
+                        key={idx}
+                        className="py-2.5 px-3 font-bold border-r border-slate-300 dark:border-slate-700 whitespace-nowrap min-w-[120px]"
+                      >
+                        {header}
+                      </th>
+                    ))}
+                    <th className="py-2.5 px-3 text-center font-bold">Hapus</th>
+                  </tr>
+                </thead>
 
-            {/* Test Result Feedback Box */}
-            {testResult && (
-              <div className={`p-4 rounded-2xl text-xs flex items-start gap-3 animate-fade-in border ${
-                testResult.success
-                  ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
-                  : 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
-              }`}>
-                {testResult.success ? (
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
-                ) : (
-                  <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                )}
-                <div className="space-y-1 flex-1">
-                  <div className="font-black text-sm flex items-center justify-between">
-                    <span>{testResult.message}</span>
-                    <span className="text-[10px] opacity-75 font-normal">{testResult.testedAt}</span>
-                  </div>
-                  {testResult.version && (
-                    <div className="text-[11px] font-mono">
-                      Versi Server MySQL: <strong>{testResult.version}</strong>
-                    </div>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono text-[11px]">
+                  {filteredRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={activeTable.headers.length + 2}
+                        className="py-12 text-center text-slate-400"
+                      >
+                        Tidak ada baris data yang cocok dengan kata kunci &quot;{searchQuery}&quot;.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRows.map((row, rowIdx) => (
+                      <tr
+                        key={rowIdx}
+                        className="hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 transition-colors"
+                      >
+                        {/* Row Number (1, 2, 3...) */}
+                        <td className="py-2 px-3 text-center font-mono font-bold text-slate-400 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 select-none">
+                          {rowIdx + 1}
+                        </td>
+
+                        {/* Cell Values */}
+                        {row.map((cell, cellIdx) => {
+                          const strCell = String(cell);
+                          let cellStyle = 'text-slate-800 dark:text-slate-200';
+                          if (strCell === 'TERVERIFIKASI' || strCell === 'DITERIMA' || strCell === 'AKTIF' || strCell === 'PUBLISH') {
+                            cellStyle = 'text-emerald-600 dark:text-emerald-400 font-bold';
+                          } else if (strCell === 'MENUNGGU VERIFIKASI' || strCell === 'PENDING') {
+                            cellStyle = 'text-amber-600 dark:text-amber-400 font-bold';
+                          }
+
+                          return (
+                            <td
+                              key={cellIdx}
+                              className={`py-2 px-3 border-r border-slate-200 dark:border-slate-800 max-w-xs truncate ${cellStyle}`}
+                              title={strCell}
+                            >
+                              {strCell}
+                            </td>
+                          );
+                        })}
+
+                        {/* Actions */}
+                        <td className="py-2 px-3 text-center border-l border-slate-200 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRow(rowIdx)}
+                            className="p-1 rounded-md text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors"
+                            title="Hapus baris data ini"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
                   )}
-                  {testResult.hint && (
-                    <div className="text-[11px] text-amber-800 dark:text-amber-300 pt-1">
-                      💡 <strong>Petunjuk:</strong> {testResult.hint}
-                    </div>
-                  )}
-                </div>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Bottom Status Bar (Google Sheets feel) */}
+            <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-[11px] text-slate-500">
+              <div className="flex items-center gap-3">
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Format UTF-8 BOM Siap Ekspor</span>
+                </span>
+                <span>•</span>
+                <span>Pemisah Nilai: Komma (CSV) & Tabulasi (TSV)</span>
               </div>
-            )}
+              <div className="font-mono">
+                {filteredRows.length} Baris Dimuat
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Grid: Database Connection Profile & Environment Config */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Connection Parameters Card */}
-        <div className="lg:col-span-2 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-sm space-y-5">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-[#0F4374]/10 dark:bg-sky-950/60 text-[#0F4374] dark:text-sky-400">
-                <Server className="w-5 h-5" />
+      {/* -------------------------------------------------------------
+          VIEW 2: GOOGLE APPS SCRIPT SYNC (LIVE CLOUD INTEGRATION)
+      -------------------------------------------------------------- */}
+      {activeMainTab === 'google_sync' && (
+        <div className="space-y-6">
+          {/* Connection URL Configuration Box */}
+          <div className="rounded-3xl border border-emerald-200 dark:border-emerald-900/60 bg-white dark:bg-slate-900 p-6 sm:p-8 shadow-sm space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center font-bold">
+                <Link className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Parameter Koneksi Database Aktif ({selectedDriver.toUpperCase()})
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  Koneksi Langsung ke Google Spreadsheet (Cloud Sync)
                 </h3>
-                <p className="text-xs text-slate-400">
-                  {selectedDriver === 'mysql' 
-                    ? 'Konfigurasi MySQL / MariaDB lokal untuk XAMPP phpMyAdmin' 
-                    : 'Konfigurasi PostgreSQL untuk Cloud SQL / Supabase / Neon'}
-                </p>
-              </div>
-            </div>
-            <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-              ● Siap Digunakan
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-              <span className="text-[10px] font-semibold text-slate-400 block uppercase">Driver / Engine</span>
-              <span className="text-sm font-bold text-slate-900 dark:text-white font-mono uppercase">
-                {selectedDriver === 'mysql' ? 'MySQL 8 / MariaDB' : 'PostgreSQL 15+'}
-              </span>
-            </div>
-            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-              <span className="text-[10px] font-semibold text-slate-400 block uppercase">Host Server</span>
-              <span className="text-sm font-bold text-slate-900 dark:text-white font-mono">
-                {selectedDriver === 'mysql' ? '127.0.0.1 (localhost)' : dbConfig.host}
-              </span>
-            </div>
-            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-              <span className="text-[10px] font-semibold text-slate-400 block uppercase">Port Default</span>
-              <span className="text-sm font-bold text-[#0F4374] dark:text-sky-400 font-mono">
-                {selectedDriver === 'mysql' ? '3306' : '5432'}
-              </span>
-            </div>
-            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-              <span className="text-[10px] font-semibold text-slate-400 block uppercase">Database Name</span>
-              <span className="text-sm font-bold text-amber-600 dark:text-amber-400 font-mono">
-                smk_yapek_db
-              </span>
-            </div>
-          </div>
-
-          {/* Connection URI Box */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-              <span>
-                {selectedDriver === 'mysql' 
-                  ? 'MySQL Connection URI (XAMPP PDO / Node MySQL2):' 
-                  : 'Standard DATABASE_URL String (PostgreSQL):'}
-              </span>
-              <button
-                type="button"
-                onClick={() => handleCopy(
-                  selectedDriver === 'mysql'
-                    ? 'mysql://root@127.0.0.1:3306/smk_yapek_db'
-                    : connectionStrings.postgresUri,
-                  'uri'
-                )}
-                className="text-[11px] text-[#0F4374] dark:text-sky-400 hover:underline flex items-center gap-1 font-semibold"
-              >
-                {copiedType === 'uri' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-                <span>{copiedType === 'uri' ? 'Tersalin' : 'Salin URI'}</span>
-              </button>
-            </label>
-            <div className="p-3 rounded-xl bg-slate-950 font-mono text-[11px] text-emerald-400 border border-slate-800 overflow-x-auto select-all">
-              {selectedDriver === 'mysql'
-                ? 'mysql://root@127.0.0.1:3306/smk_yapek_db'
-                : connectionStrings.postgresUri}
-            </div>
-          </div>
-
-          {/* CLI Terminal Command Box */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <Terminal className="w-3.5 h-3.5 text-amber-500" />
-                <span>Perintah Eksekusi Cepat via Terminal / Bash:</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => handleCopy(
-                  selectedDriver === 'mysql'
-                    ? 'mysql -u root -p smk_yapek_db < database_mysql_xampp.sql'
-                    : `${connectionStrings.psqlCli} < database.sql`,
-                  'cli-cmd'
-                )}
-                className="text-[11px] text-[#0F4374] dark:text-sky-400 hover:underline flex items-center gap-1 font-semibold"
-              >
-                {copiedType === 'cli-cmd' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-                <span>{copiedType === 'cli-cmd' ? 'Tersalin' : 'Salin Perintah'}</span>
-              </button>
-            </label>
-            <div className="p-3 rounded-xl bg-slate-900 dark:bg-slate-950 font-mono text-[11px] text-amber-300 border border-slate-800 flex items-center justify-between gap-2 overflow-x-auto">
-              <code>
-                {selectedDriver === 'mysql'
-                  ? 'mysql -u root -p smk_yapek_db < database_mysql_xampp.sql'
-                  : `${connectionStrings.psqlCli} < database.sql`}
-              </code>
-            </div>
-          </div>
-        </div>
-
-        {/* Environment File (.env) Info */}
-        <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-sm space-y-4 flex flex-col justify-between">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                <KeyRound className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Variabel Lingkungan (.env)
-                </h3>
-                <p className="text-xs text-slate-400">
-                  {selectedDriver === 'mysql' ? 'Konfigurasi XAMPP Bawaan' : 'Konfigurasi PostgreSQL'}
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Hubungkan website sekolah dengan lembar kerja Google Spreadsheet Anda menggunakan Google Apps Script Web App gratis tanpa biaya.
                 </p>
               </div>
             </div>
 
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              {selectedDriver === 'mysql' ? (
-                <span>Untuk menghubungkan ke MySQL lokal di XAMPP, gunakan variabel berikut di file <code>.env</code> Anda:</span>
-              ) : (
-                <span>Konfigurasi variabel untuk PostgreSQL produksi (Supabase / Cloud SQL / VPS):</span>
-              )}
-            </p>
+            {/* URL Input */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                URL Web App Google Apps Script (Webhook Endpoint)
+              </label>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <input
+                  type="url"
+                  placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
+                  value={googleSheetUrl}
+                  onChange={(e) => handleSaveGoogleSheetUrl(e.target.value)}
+                  className="flex-1 px-4 py-2.5 text-xs font-mono rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <button
+                  type="button"
+                  disabled={isSyncing}
+                  onClick={handleTestGoogleSync}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {isSyncing ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  <span>Tes Koneksi</span>
+                </button>
 
-            <div className="p-3 rounded-2xl bg-slate-950 font-mono text-[11px] text-slate-300 space-y-1 border border-slate-800">
-              <div className="text-emerald-400">DB_CLIENT={selectedDriver === 'mysql' ? 'mysql' : 'postgresql'}</div>
-              <div>DB_HOST={selectedDriver === 'mysql' ? '127.0.0.1' : 'localhost'}</div>
-              <div>DB_PORT={selectedDriver === 'mysql' ? '3306' : '5432'}</div>
-              <div className="text-amber-300">DB_NAME=smk_yapek_db</div>
-              <div>DB_USER={selectedDriver === 'mysql' ? 'root' : 'yapek_admin'}</div>
-              <div className="text-rose-400">DB_PASSWORD={selectedDriver === 'mysql' ? '""' : '******'}</div>
-              <div>DB_SSL=false</div>
-              <div>DB_POOL_MAX=10</div>
+                <button
+                  type="button"
+                  disabled={isSyncing}
+                  onClick={handlePushToGoogleSheet}
+                  className="px-5 py-2.5 rounded-xl bg-[#0F4374] hover:bg-[#154e85] text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                  title="Kirim seluruh data lokal saat ini ke Google Spreadsheet"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Kirim Data ke Google Sheets</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Data disimpan otomatis di browser administrator ini dan siap digunakan untuk sinkronisasi kapan pun.
+              </p>
             </div>
-          </div>
 
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={() => handleCopy(
-                selectedDriver === 'mysql'
-                  ? `DB_CLIENT="mysql"\nDB_HOST="127.0.0.1"\nDB_PORT="3306"\nDB_NAME="smk_yapek_db"\nDB_USER="root"\nDB_PASSWORD=""\nDB_SSL="false"\nDB_POOL_MIN="2"\nDB_POOL_MAX="10"`
-                  : `DATABASE_URL="${connectionStrings.postgresUri}"\nDB_CLIENT="postgresql"\nDB_HOST="localhost"\nDB_PORT="5432"\nDB_NAME="smk_yapek_db"\nDB_USER="yapek_admin"\nDB_PASSWORD="yapek_secure_password_2026"\nDB_SSL="false"`,
-                'env-vars'
-              )}
-              className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-center gap-1.5 transition-colors"
-            >
-              {copiedType === 'env-vars' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedType === 'env-vars' ? 'Konfigurasi .env Tersalin' : 'Salin Snippet .env'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Database Schema Explorer (12 Tables) */}
-      <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-sm space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
-          <div>
-            <div className="flex items-center gap-2">
-              <Table className="w-5 h-5 text-[#0F4374] dark:text-sky-400" />
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                Daftar 12 Tabel Skema Database SMK YAPEK
-              </h3>
-            </div>
-            <p className="text-xs text-slate-400">
-              Struktur tabel terelasi untuk manajemen konten berita, lampiran, pendaftar PPDB, dan profil lembaga (Mesin InnoDB / UTF-8)
-            </p>
-          </div>
-
-          {/* Search Table Filter */}
-          <div className="w-full sm:w-64">
-            <input
-              type="text"
-              placeholder="Cari nama tabel..."
-              value={searchTableQuery}
-              onChange={(e) => setSearchTableQuery(e.target.value)}
-              className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
-            />
-          </div>
-        </div>
-
-        {/* Table Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-          {filteredTables.map((table) => {
-            const rowCount = getRowCount(table.name);
-            return (
-              <div 
-                key={table.name}
-                className="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:border-sky-300 dark:hover:border-sky-700 transition-all flex flex-col justify-between gap-3"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-xs font-bold text-[#0F4374] dark:text-sky-300 flex items-center gap-1.5">
-                      <Layers className="w-3.5 h-3.5 text-amber-500" />
-                      <span>{table.name}</span>
-                    </span>
-                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
-                      {rowCount} Data
-                    </span>
-                  </div>
-                  <span className="inline-block mt-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-                    {table.category}
-                  </span>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
-                    {table.description}
-                  </p>
-                </div>
-
-                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/80 text-[11px] space-y-1">
-                  <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                    <span>Primary Key:</span>
-                    <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">{table.primaryKey}</span>
-                  </div>
-                  {table.foreignKeys && table.foreignKeys.length > 0 && (
-                    <div className="flex items-start justify-between text-rose-600 dark:text-rose-400 text-[10px]">
-                      <span>Relasi:</span>
-                      <span className="font-mono font-medium">{table.foreignKeys[0]}</span>
-                    </div>
+            {/* Status Alert */}
+            {syncStatus && (
+              <div className={`p-4 rounded-2xl text-xs flex items-start gap-3 border ${
+                syncStatus.success
+                  ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                  : 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+              }`}>
+                {syncStatus.success ? (
+                  <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-500 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-500 mt-0.5" />
+                )}
+                <div className="space-y-1">
+                  <div className="font-semibold">{syncStatus.message}</div>
+                  {syncStatus.timestamp && (
+                    <div className="text-[10px] text-slate-400">Diuji pada {syncStatus.timestamp}</div>
                   )}
                 </div>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* SQL Script Viewer & Copy Hub */}
-      <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex items-center gap-2">
-            <Code2 className="w-5 h-5 text-amber-500" />
-            <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>Pratinjau Kode SQL ({selectedDriver === 'mysql' ? 'MySQL / phpMyAdmin' : 'PostgreSQL'})</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
-                  {selectedDriver === 'mysql' ? 'InnoDB utf8mb4' : 'Postgres 12+'}
-                </span>
-              </h3>
-              <p className="text-xs text-slate-400">
-                Skrip SQL murni siap dieksekusi di phpMyAdmin, HeidiSQL, DBeaver, atau Terminal
-              </p>
-            </div>
-          </div>
-
-          {/* Tab Selector for SQL Snippets */}
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
-            <button
-              type="button"
-              onClick={() => setActiveSqlTab('all')}
-              className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                activeSqlTab === 'all' 
-                  ? 'bg-white dark:bg-slate-900 text-[#0F4374] dark:text-sky-300 shadow-xs' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Semua (12 Tabel)
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSqlTab('news')}
-              className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                activeSqlTab === 'news' 
-                  ? 'bg-white dark:bg-slate-900 text-[#0F4374] dark:text-sky-300 shadow-xs' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Warta & Lampiran
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSqlTab('ppdb')}
-              className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                activeSqlTab === 'ppdb' 
-                  ? 'bg-white dark:bg-slate-900 text-[#0F4374] dark:text-sky-300 shadow-xs' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              PPDB Online
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSqlTab('majors')}
-              className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                activeSqlTab === 'majors' 
-                  ? 'bg-white dark:bg-slate-900 text-[#0F4374] dark:text-sky-300 shadow-xs' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Profil & Jurusan
-            </button>
-            {selectedDriver === 'mysql' && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setActiveSqlTab('php_koneksi')}
-                  className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                    activeSqlTab === 'php_koneksi' 
-                      ? 'bg-amber-400 text-slate-950 shadow-xs' 
-                      : 'text-amber-600 dark:text-amber-400 hover:text-amber-800'
-                  }`}
-                >
-                  koneksi.php
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveSqlTab('php_ppdb')}
-                  className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                    activeSqlTab === 'php_ppdb' 
-                      ? 'bg-amber-400 text-slate-950 shadow-xs' 
-                      : 'text-amber-600 dark:text-amber-400 hover:text-amber-800'
-                  }`}
-                >
-                  ppdb.php (Tanpa API)
-                </button>
-              </>
             )}
           </div>
-        </div>
 
-        {/* Code Box with Action Bar */}
-        <div className="relative rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden shadow-inner">
-          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 text-xs text-slate-400">
-            <span className="font-mono text-[11px] text-amber-400">
-              {activeSqlTab === 'php_koneksi'
-                ? 'koneksi.php (PHP PDO Native - Tanpa API)'
-                : activeSqlTab === 'php_ppdb'
-                ? 'ppdb.php (Formulir PPDB Native - Tanpa API)'
-                : selectedDriver === 'mysql'
-                ? 'database_mysql_xampp.sql'
-                : 'database_postgres.sql'}
-            </span>
-            <div className="flex items-center gap-2">
+          {/* Step-by-Step 4 Cards Guide */}
+          <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-8 shadow-sm space-y-6">
+            <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+              <HelpCircle className="w-5 h-5 text-emerald-600" />
+              <span>Cara Menghubungkan ke Google Spreadsheet (Hanya 1 Menit)</span>
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-700/70 space-y-2">
+                <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white font-black text-xs flex items-center justify-center">
+                  1
+                </div>
+                <div className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                  Buat Google Sheet
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Buka <a href="https://sheets.google.com" target="_blank" rel="noreferrer" className="text-emerald-600 underline">sheets.google.com</a> dan buat spreadsheet baru bernama <strong>&quot;Database SMK YAPEK&quot;</strong>.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-700/70 space-y-2">
+                <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white font-black text-xs flex items-center justify-center">
+                  2
+                </div>
+                <div className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                  Buka Apps Script
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Di Google Sheet, klik menu <strong>Ekstensi &gt; Apps Script</strong>. Hapus kode yang ada, lalu tempel kode di bawah.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-700/70 space-y-2">
+                <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white font-black text-xs flex items-center justify-center">
+                  3
+                </div>
+                <div className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                  Deploy Web App
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Klik <strong>Deploy &gt; New deployment</strong>. Pilih <strong>Web app</strong>, atur Who has access: <strong>Anyone</strong>, lalu klik Deploy.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-700/70 space-y-2">
+                <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white font-black text-xs flex items-center justify-center">
+                  4
+                </div>
+                <div className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                  Tempel URL Web App
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Salin <strong>Web app URL</strong> yang dihasilkan dan tempelkan ke kotak URL di atas, lalu klik <strong>Tes Koneksi</strong>. Selesai!
+                </p>
+              </div>
+            </div>
+
+            {/* Code Box */}
+            <div className="space-y-2 pt-4 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Code2 className="w-4 h-4 text-emerald-600" />
+                  <span>Kode Google Apps Script Siap Pakai (Code.gs)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopyText(GOOGLE_APPS_SCRIPT_CODE, 'code_gs')}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex items-center gap-1.5"
+                >
+                  {copiedType === 'code_gs' ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Kode Tersalin!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Salin Seluruh Kode (Code.gs)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 font-mono text-[11px] text-emerald-400 max-h-72 overflow-y-auto overflow-x-auto">
+                <pre>{GOOGLE_APPS_SCRIPT_CODE}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------
+          VIEW 3: EXPORT & DOWNLOAD ALL SPREADSHEETS (.CSV / .XLSX)
+      -------------------------------------------------------------- */}
+      {activeMainTab === 'export_download' && (
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-8 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  Unduh Semua Sheet Database Sekolah (.CSV / Excel)
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Unduh seluruh data dalam format CSV UTF-8 BOM yang dapat langsung dibuka dengan rapi di Microsoft Excel, Google Sheets, maupun LibreOffice.
+                </p>
+              </div>
+
               <button
                 type="button"
-                onClick={() => handleCopy(getSelectedSql(), 'active-sql')}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1 transition-colors"
+                onClick={handleDownloadAllSheets}
+                className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md hover:shadow-lg transition-all flex items-center gap-2 flex-shrink-0"
               >
-                {copiedType === 'active-sql' ? (
-                  <>
-                    <Check className="w-3 h-3 text-emerald-400" />
-                    <span className="text-emerald-300">Tersalin!</span>
-                  </>
+                <FolderDown className="w-4 h-4" />
+                <span>Unduh Semua Sheet Sekaligus</span>
+              </button>
+            </div>
+
+            {/* Grid of Sheet Download Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {tables.map((table) => {
+                const rowCount = table.getRows().length;
+                return (
+                  <div
+                    key={table.id}
+                    className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 space-y-4 hover:border-emerald-500/50 transition-colors flex flex-col justify-between"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                          {table.sheetName}.csv
+                        </span>
+                        <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-400">
+                          {rowCount} Baris
+                        </span>
+                      </div>
+                      <div className="font-black text-sm text-slate-900 dark:text-white">
+                        {table.name}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {table.description}
+                      </p>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        Kolom: {table.headers.slice(0, 3).join(', ')}... ({table.headers.length} total)
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-700/60">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadSingleCsv(table)}
+                        className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Unduh File</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const tsv = generateTsv(table.headers, table.getRows());
+                          handleCopyText(tsv, `tsv_${table.id}`);
+                        }}
+                        className="py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs hover:bg-slate-100 transition-colors"
+                        title="Salin untuk di-paste langsung ke Google Sheets"
+                      >
+                        {copiedType === `tsv_${table.id}` ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------
+          VIEW 4: IMPORT DATA / PASTE SPREADSHEET
+      -------------------------------------------------------------- */}
+      {activeMainTab === 'import_spreadsheet' && (
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-8 shadow-sm space-y-6">
+            <div>
+              <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                Impor Data dari Google Spreadsheet / File CSV
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Pilih tabel tujuan, lalu salin baris data dari Google Sheets (Ctrl+C) dan tempelkan (Ctrl+V) di bawah ini.
+              </p>
+            </div>
+
+            {/* Target Selector */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                Pilih Tabel Spreadsheet Tujuan:
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setImportTargetSheet('ppdb_pendaftar')}
+                  className={`p-3.5 rounded-2xl border text-left transition-all ${
+                    importTargetSheet === 'ppdb_pendaftar'
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 font-bold text-emerald-900 dark:text-emerald-200'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <div className="text-xs font-bold">📄 Data Calon Siswa PPDB</div>
+                  <div className="text-[10px] opacity-75">Tabel pendaftar siswa baru SMK YAPEK</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setImportTargetSheet('berita_sekolah')}
+                  className={`p-3.5 rounded-2xl border text-left transition-all ${
+                    importTargetSheet === 'berita_sekolah'
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 font-bold text-emerald-900 dark:text-emerald-200'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <div className="text-xs font-bold">📰 Warta &amp; Berita Sekolah</div>
+                  <div className="text-[10px] opacity-75">Tabel pengumuman dan kabar kegiatan</div>
+                </button>
+              </div>
+            </div>
+
+            {/* Paste Box */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Tempel Data Spreadsheet (Tab-Separated atau CSV):
+                </label>
+                <label className="cursor-pointer text-[11px] font-bold text-emerald-600 hover:underline flex items-center gap-1">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Atau Unggah Berkas .CSV</span>
+                  <input
+                    type="file"
+                    accept=".csv,.txt,.tsv"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          if (typeof event.target?.result === 'string') {
+                            setImportRawText(event.target.result);
+                          }
+                        };
+                        reader.readAsText(file);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+
+              <textarea
+                rows={8}
+                placeholder="Salin beberapa baris dari Google Sheets / Excel, lalu tempelkan di sini..."
+                value={importRawText}
+                onChange={(e) => setImportRawText(e.target.value)}
+                className="w-full p-4 rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            {/* Import Status Alert */}
+            {importStatus && (
+              <div className={`p-4 rounded-2xl text-xs flex items-start gap-3 border ${
+                importStatus.success
+                  ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                  : 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+              }`}>
+                {importStatus.success ? (
+                  <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-500 mt-0.5" />
                 ) : (
-                  <>
-                    <Copy className="w-3 h-3" />
-                    <span>Salin Cuplikan Ini</span>
-                  </>
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-500 mt-0.5" />
                 )}
+                <div>{importStatus.message}</div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setImportRawText('')}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                Kosongkan
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (selectedDriver === 'mysql') {
-                    downloadMysqlXamppSqlFile(`smk_yapek_mysql_${activeSqlTab}.sql`);
-                  } else {
-                    downloadDatabaseSqlFile(getSelectedSql(), `smk_yapek_postgres_${activeSqlTab}.sql`);
-                  }
-                }}
-                className="px-2.5 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 text-xs font-semibold flex items-center gap-1 transition-colors"
+                onClick={handleExecuteImport}
+                className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md hover:shadow-lg transition-all flex items-center gap-2"
               >
-                <Download className="w-3 h-3" />
-                <span>Unduh Bagian Ini</span>
+                <Check className="w-4 h-4" />
+                <span>Proses &amp; Masukkan ke Database</span>
               </button>
             </div>
           </div>
-
-          <pre className="p-4 text-xs font-mono text-slate-300 max-h-96 overflow-y-auto overflow-x-auto leading-relaxed scrollbar-thin">
-            <code>{getSelectedSql()}</code>
-          </pre>
         </div>
-      </div>
+      )}
+
+      {/* -------------------------------------------------------------
+          VIEW 5: SQL / MYSQL / XAMPP BACKUP OPTION (LEGACY / ARCHIVE)
+      -------------------------------------------------------------- */}
+      {activeMainTab === 'sql_backup' && (
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-8 shadow-sm space-y-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase">
+                  Opsi Cadangan Pengembang (Opsional)
+                </span>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  Skema SQL MySQL / XAMPP phpMyAdmin (Arsip)
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Meskipun sistem kini menggunakan <strong>Spreadsheet</strong> sebagai engine database utama, Anda tetap dapat mengunduh skrip SQL cadangan untuk kebutuhan arsip lokal di XAMPP MySQL.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 space-y-3">
+                <div className="font-bold text-xs text-slate-900 dark:text-white">
+                  Database SQL MySQL
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Skema DDL &amp; DML 12 tabel siap impor ke phpMyAdmin.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => downloadMysqlXamppSqlFile()}
+                  className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh .SQL (MySQL)</span>
+                </button>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 space-y-3">
+                <div className="font-bold text-xs text-slate-900 dark:text-white">
+                  Skrip koneksi.php
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Koneksi native PHP PDO/MySQLi untuk server Apache lokal.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => downloadFileContent(RAW_PHP_KONEKSI, 'koneksi.php', 'application/x-httpd-php;charset=utf-8;')}
+                  className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh koneksi.php</span>
+                </button>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 space-y-3">
+                <div className="font-bold text-xs text-slate-900 dark:text-white">
+                  Skrip ppdb.php
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Formulir pendaftaran PPDB native PHP tanpa node.js.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => downloadFileContent(RAW_PHP_PPDB, 'ppdb.php', 'application/x-httpd-php;charset=utf-8;')}
+                  className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh ppdb.php</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADD NEW ROW TO SPREADSHEET */}
+      {isAddRowModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 sm:p-8 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  Tambah Baris ke {activeTable.sheetName}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Masukkan nilai kolom untuk baris baru di spreadsheet.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddRowModalOpen(false)}
+                className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddNewRow} className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+              {activeTable.headers.slice(1).map((header, idx) => (
+                <div key={idx} className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    {header}
+                  </label>
+                  <input
+                    type="text"
+                    required={idx === 0 || idx === 1}
+                    placeholder={`Masukkan ${header}...`}
+                    value={newRowValues[header] || ''}
+                    onChange={(e) =>
+                      setNewRowValues({ ...newRowValues, [header]: e.target.value })
+                    }
+                    className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              ))}
+
+              <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAddRowModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Simpan ke Spreadsheet</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

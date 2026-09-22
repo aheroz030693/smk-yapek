@@ -56,7 +56,26 @@ export default function App() {
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
 
   // CMS Dynamic State
-  const [schoolInfo, setSchoolInfo] = useState<SchoolIdentity>(SCHOOL_INFO);
+  const [schoolInfo, setSchoolInfo] = useState<SchoolIdentity>(() => {
+    try {
+      const saved = localStorage.getItem('smk_yapek_school_info');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {
+      // fallback
+    }
+    return SCHOOL_INFO;
+  });
+
+  const handleUpdateSchoolInfo = (updated: SchoolIdentity) => {
+    setSchoolInfo(updated);
+    try {
+      localStorage.setItem('smk_yapek_school_info', JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+  };
   const [headmaster, setHeadmaster] = useState<HeadmasterProfile>(INITIAL_HEADMASTER_PROFILE);
   const [testimonials, setTestimonials] = useState<AlumniTestimonial[]>(ALUMNI_TESTIMONIALS);
   const [activityGallery, setActivityGallery] = useState<ActivityGalleryItem[]>(() => {
@@ -304,7 +323,7 @@ export default function App() {
             onLogoutAdmin={handleLogoutAdmin}
             onUpdateNews={setNewsList}
             onUpdateApplicants={setApplicants}
-            onUpdateSchoolInfo={setSchoolInfo}
+            onUpdateSchoolInfo={handleUpdateSchoolInfo}
             onUpdateHeadmaster={setHeadmaster}
             onUpdateTestimonials={setTestimonials}
             onUpdateGallery={handleUpdateActivityGallery}
