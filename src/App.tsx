@@ -99,6 +99,41 @@ export default function App() {
     return null;
   });
 
+  // Admin Users & RBAC State
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>(() => {
+    try {
+      const saved = localStorage.getItem('smk_yapek_admin_users');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_ADMIN_USERS;
+  });
+
+  const handleUpdateAdminUsers = (updated: AdminUser[]) => {
+    setAdminUsers(updated);
+    try {
+      localStorage.setItem('smk_yapek_admin_users', JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+
+    // Sync logged-in session if current admin was edited
+    if (adminUser) {
+      const matched = updated.find((u) => u.id === adminUser.id);
+      if (matched) {
+        setAdminUser(matched);
+        try {
+          localStorage.setItem('smk_yapek_admin_session', JSON.stringify(matched));
+        } catch {
+          // ignore
+        }
+      }
+    }
+  };
+
   // Sync dark mode with root HTML element
   useEffect(() => {
     if (isDarkMode) {
@@ -263,6 +298,8 @@ export default function App() {
             topPages={topPages}
             visitorLogs={visitorLogs}
             adminUser={adminUser}
+            adminUsers={adminUsers}
+            onUpdateAdminUsers={handleUpdateAdminUsers}
             onLoginSuccess={handleLoginSuccess}
             onLogoutAdmin={handleLogoutAdmin}
             onUpdateNews={setNewsList}

@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS news (
     author VARCHAR(150) NOT NULL,
     views INT DEFAULT 0,
     status VARCHAR(20) DEFAULT 'published', -- published, draft, archived
+    is_headline BOOLEAN DEFAULT FALSE,      -- Tampil di slider headline header
     tags_json TEXT,
     related_article_ids_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -396,7 +397,7 @@ INSERT INTO majors (
 -- 4. DATA BERITA & WARTA RESMI
 INSERT INTO news (
     id, title, category, date_text, image, summary, content, author, views, status,
-    tags_json, related_article_ids_json
+    is_headline, tags_json, related_article_ids_json
 ) VALUES 
 (
     'news-1',
@@ -409,6 +410,7 @@ INSERT INTO news (
     'Panitia PPDB 2026',
     1420,
     'published',
+    TRUE,
     '["PPDB 2026", "Pendaftaran", "Beasiswa", "Gombong"]',
     '["news-2", "news-3"]'
 ),
@@ -423,6 +425,7 @@ INSERT INTO news (
     'Humas SMK YAGO',
     980,
     'published',
+    TRUE,
     '["Prestasi", "TKJ", "LKS Kedu", "Medali Emas"]',
     '["news-1", "news-3"]'
 ),
@@ -437,6 +440,7 @@ INSERT INTO news (
     'Koordinator BKK',
     1850,
     'published',
+    TRUE,
     '["BKK", "Lowongan Kerja", "Astra", "Alfamart"]',
     '["news-1", "news-4"]'
 ),
@@ -451,6 +455,7 @@ INSERT INTO news (
     'Ketua Program TKKR',
     760,
     'published',
+    FALSE,
     '["Tata Kecantikan", "TKKR", "Workshop", "MUA"]',
     '["news-1", "news-2"]'
 ) ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title;

@@ -20,12 +20,14 @@ interface AdminLoginScreenProps {
   onLoginSuccess: (user: AdminUser) => void;
   onBackToHome: () => void;
   isDarkMode: boolean;
+  adminUsers?: AdminUser[];
 }
 
 export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
   onLoginSuccess,
   onBackToHome,
-  isDarkMode
+  isDarkMode,
+  adminUsers = ADMIN_USERS
 }) => {
   const [email, setEmail] = useState('admin@smkyapekgombong.sch.id');
   const [password, setPassword] = useState('admin123');
@@ -41,13 +43,34 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
 
     setTimeout(() => {
       // Find matching user
-      const foundUser = ADMIN_USERS.find(
+      const foundUser = adminUsers.find(
         (u) => u.email.toLowerCase() === email.trim().toLowerCase()
       );
 
-      if (foundUser && (password === 'admin123' || password === 'kepsek123' || password === 'redaksi123' || password.length >= 6)) {
-        setIsLoading(false);
-        onLoginSuccess(foundUser);
+      if (foundUser) {
+        if (foundUser.status === 'inactive') {
+          setIsLoading(false);
+          setErrorMsg(`Akun "${foundUser.name}" saat ini berstatus Nonaktif. Hubungi Super Admin CMS untuk mengaktifkan kembali.`);
+          return;
+        }
+
+        const expectedPassword = foundUser.password || (
+          foundUser.role === 'Kepala Sekolah' ? 'kepsek123' :
+          foundUser.role === 'Admin Humas & Redaksi' ? 'redaksi123' :
+          foundUser.role === 'Admin PPDB & Kesiswaan' ? 'ppdb123' : 'admin123'
+        );
+
+        if (password === expectedPassword || password === 'admin123' || password.length >= 6) {
+          setIsLoading(false);
+          const loggedInUser: AdminUser = {
+            ...foundUser,
+            lastLogin: 'Baru saja'
+          };
+          onLoginSuccess(loggedInUser);
+        } else {
+          setIsLoading(false);
+          setErrorMsg('Kata sandi salah. Silakan periksa kembali atau gunakan opsi login cepat di bawah.');
+        }
       } else if (email.trim() && password.length >= 6) {
         // Allow dynamic login with fallback admin
         setIsLoading(false);
@@ -57,26 +80,29 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
           email: email.trim(),
           role: 'Super Admin CMS',
           avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
-          lastLogin: 'Baru saja'
+          lastLogin: 'Baru saja',
+          status: 'active',
+          permissions: ['articles', 'ppdb', 'gallery', 'testimonials', 'headmaster', 'identity', 'traffic', 'database', 'users']
         });
       } else {
         setIsLoading(false);
-        setErrorMsg('Email atau kata sandi tidak valid. Silakan periksa kembali atau gunakan akun demo di bawah.');
+        setErrorMsg('Email atau kata sandi tidak valid. Silakan periksa kembali atau pilih akun demo di bawah.');
       }
     }, 600);
   };
 
-  const handleQuickLogin = (userIndex: number) => {
-    const targetUser = ADMIN_USERS[userIndex];
-    if (!targetUser) return;
-    setEmail(targetUser.email);
-    if (targetUser.role === 'Kepala Sekolah') {
-      setPassword('kepsek123');
-    } else if (targetUser.role === 'Admin Humas & Redaksi') {
-      setPassword('redaksi123');
-    } else {
-      setPassword('admin123');
+  const handleQuickLogin = (targetUser: AdminUser) => {
+    if (targetUser.status === 'inactive') {
+      setErrorMsg(`Akun "${targetUser.name}" sedang nonaktif.`);
+      return;
     }
+    setEmail(targetUser.email);
+    const pwd = targetUser.password || (
+      targetUser.role === 'Kepala Sekolah' ? 'kepsek123' :
+      targetUser.role === 'Admin Humas & Redaksi' ? 'redaksi123' :
+      targetUser.role === 'Admin PPDB & Kesiswaan' ? 'ppdb123' : 'admin123'
+    );
+    setPassword(pwd);
     setErrorMsg(null);
   };
 
@@ -219,60 +245,40 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
               </span>
             </div>
 
-            <div className="grid grid-cols-1 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickLogin(0)}
-                className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-left transition-colors flex items-center justify-between"
-              >
-                <div>
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    Super Admin Humas & IT
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    admin@smkyapekgombong.sch.id
-                  </div>
-                </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">
-                  Full Access
-                </span>
-              </button>
+            <div className="grid grid-cols-1 gap-2 max-h-56 overflow-y-auto pr-1">
+              {adminUsers.filter(u => u.status !== 'inactive').slice(0, 5).map((user) => {
+                let badgeStyle = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+                if (user.role === 'Super Admin CMS') {
+                  badgeStyle = 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300';
+                } else if (user.role === 'Kepala Sekolah') {
+                  badgeStyle = 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300';
+                } else if (user.role === 'Admin Humas & Redaksi') {
+                  badgeStyle = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300';
+                } else if (user.role === 'Admin PPDB & Kesiswaan') {
+                  badgeStyle = 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-300';
+                }
 
-              <button
-                type="button"
-                onClick={() => handleQuickLogin(1)}
-                className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-left transition-colors flex items-center justify-between"
-              >
-                <div>
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    Drs. H. Suwarno, M.M. (Kepala Sekolah)
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    kepsek@smkyapekgombong.sch.id
-                  </div>
-                </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300">
-                  Eksekutif
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickLogin(2)}
-                className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-left transition-colors flex items-center justify-between"
-              >
-                <div>
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    Tim Redaksi & Humas BKK
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    redaksi@smkyapekgombong.sch.id
-                  </div>
-                </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">
-                  Konten & Berita
-                </span>
-              </button>
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => handleQuickLogin(user)}
+                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-left transition-colors flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                        {user.name}
+                      </div>
+                      <div className="text-[10px] text-slate-500 truncate font-mono">
+                        {user.email}
+                      </div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${badgeStyle}`}>
+                      {user.role === 'Super Admin CMS' ? 'Full Access' : user.role.replace('Admin ', '')}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

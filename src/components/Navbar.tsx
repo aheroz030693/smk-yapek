@@ -123,6 +123,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <SchoolLogo
               variant={isDarkMode ? 'dark' : 'light'}
               size="md"
+              customLogoUrl={info.logo}
               onClick={() => handleNavClick('home')}
             />
           </div>

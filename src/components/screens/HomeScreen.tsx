@@ -4,6 +4,8 @@ import { ScreenTab, NewsItem, SchoolIdentity, HeadmasterProfile, AlumniTestimoni
 import { AlumniTestimonialsSection } from '../AlumniTestimonialsSection';
 import { InstagramFeedSection } from '../InstagramFeedSection';
 import { ActivityGallerySection } from '../ActivityGallerySection';
+import { HeaderHeadlineSlider } from '../HeaderHeadlineSlider';
+import { SchoolLogo } from '../SchoolLogo';
 import { 
   ArrowRight, 
   Award, 
@@ -59,9 +61,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const activeSchoolInfo = schoolInfo || SCHOOL_INFO;
   const activeHeadmaster = headmaster || INITIAL_HEADMASTER_PROFILE;
   return (
-    <div className="space-y-16 sm:space-y-24 pb-12">
+    <div className="space-y-12 sm:space-y-16 pb-12">
+      {/* 0. SLIDER OTOMATIS BERITA UTAMA / HEADLINE DI HEADER */}
+      <section className="pt-4 sm:pt-6 max-w-7xl mx-auto px-4 sm:px-6">
+        <HeaderHeadlineSlider
+          newsList={newsList}
+          onOpenArticle={onOpenArticle}
+          isDarkMode={isDarkMode}
+        />
+      </section>
+
       {/* 1. HERO SECTION */}
-      <section className="relative overflow-hidden pt-6 pb-12 lg:pt-10 lg:pb-20">
+      <section className="relative overflow-hidden pt-4 pb-12 lg:pt-8 lg:pb-18">
         {/* Decorative background gradients */}
         <div className="absolute inset-0 pointer-events-none -z-10 opacity-70">
           <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-amber-400/15 blur-3xl" />
@@ -72,10 +83,35 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
             {/* Left Col: Main Copy */}
             <div className="lg:col-span-7 space-y-6 text-left">
+              {/* Official School Identity Badge with Logo on Beranda */}
+              <div className="inline-flex items-center gap-3.5 p-2 pr-5 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/90 dark:border-slate-800 shadow-sm backdrop-blur-sm">
+                <div className="w-12 h-12 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 p-1 flex items-center justify-center flex-shrink-0 shadow-inner overflow-hidden">
+                  {activeSchoolInfo.logo && activeSchoolInfo.logo !== '/logo-emblem.svg' ? (
+                    <img
+                      src={activeSchoolInfo.logo}
+                      alt={activeSchoolInfo.name}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <SchoolLogo variant={isDarkMode ? 'dark' : 'light'} size="xs" showText={false} />
+                  )}
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs sm:text-sm font-black text-[#0F4374] dark:text-sky-400 uppercase tracking-wide leading-tight">
+                    {activeSchoolInfo.name}
+                  </span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium line-clamp-1">
+                    {activeSchoolInfo.motto || activeSchoolInfo.tagline}
+                  </span>
+                </div>
+              </div>
+
               {/* Pill Badge */}
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-bold tracking-wide">
-                <Sparkles className="w-4 h-4 text-amber-500" />
-                <span>PPDB TAHUN AJARAN 2026/2027 TELAH DIBUKA</span>
+              <div className="flex items-center gap-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-bold tracking-wide">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span>PPDB TAHUN AJARAN 2026/2027 TELAH DIBUKA</span>
+                </div>
               </div>
 
               <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.15] text-slate-900 dark:text-white">
@@ -155,9 +191,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent"></div>
                     
-                    {/* Badge on Image */}
-                    <div className="absolute top-4 left-4">
-                      <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#0F4374] text-white shadow-md border border-blue-400/30">
+                    {/* Badge on Image with School Logo */}
+                    <div className="absolute top-4 left-4 flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-white/95 dark:bg-slate-900/95 p-1 shadow-md border border-white/60 dark:border-slate-700/60 backdrop-blur-sm flex items-center justify-center flex-shrink-0">
+                        {activeSchoolInfo.logo && activeSchoolInfo.logo !== '/logo-emblem.svg' ? (
+                          <img
+                            src={activeSchoolInfo.logo}
+                            alt="Logo Sekolah"
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <SchoolLogo variant="light" size="xs" showText={false} />
+                        )}
+                      </div>
+                      <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#0F4374]/95 text-white shadow-md border border-blue-400/30 backdrop-blur-sm">
                         Pendidikan Vokasi Unggulan
                       </span>
                     </div>

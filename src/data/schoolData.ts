@@ -9,6 +9,8 @@ import {
   HeadmasterProfile,
   SchoolIdentity,
   AdminUser,
+  AdminRole,
+  AdminPermission,
   DailyTraffic,
   TrafficSource,
   TopPageTraffic,
@@ -21,6 +23,7 @@ export const INITIAL_SCHOOL_IDENTITY: SchoolIdentity = {
   shortName: 'SMK YAGO',
   motto: 'Lembaga Pendidikan Kejuruan Berkualitas',
   tagline: 'Beriman, Kompeten, Kreatif, Mandiri & Berdaya Saing Global',
+  logo: '/logo-emblem.svg',
   npsn: '20330310',
   accreditation: 'A (Unggul)',
   establishedYear: '1967',
@@ -276,6 +279,7 @@ Pendaftaran dapat dilakukan secara daring (online) melalui portal resmi sekolah 
     views: 1420,
     tags: ['PPDB 2026', 'Pendaftaran', 'Beasiswa', 'Gombong'],
     status: 'published',
+    isHeadline: true,
     relatedArticleIds: ['news-2', 'news-3'],
     attachments: [
       {
@@ -321,6 +325,7 @@ Pembimbing lomba, Budi Santoso, S.Kom., mengungkapkan rasa syukur dan bangganya 
     views: 980,
     tags: ['Prestasi', 'TKJ', 'LKS Kedu', 'Medali Emas'],
     status: 'published',
+    isHeadline: true,
     relatedArticleIds: ['news-1', 'news-3'],
     attachments: [
       {
@@ -358,6 +363,7 @@ Bagi para alumni yang dinyatakan lolos seleksi final, mereka akan langsung menan
     views: 1850,
     tags: ['BKK', 'Lowongan Kerja', 'Astra', 'Alfamart'],
     status: 'published',
+    isHeadline: true,
     relatedArticleIds: ['news-1', 'news-4'],
     attachments: [
       {
@@ -386,6 +392,7 @@ Ketua Program Keahlian TKKR menuturkan bahwa kegiatan workshop praktisi mengajar
     views: 760,
     tags: ['Tata Kecantikan', 'TKKR', 'Workshop', 'MUA'],
     status: 'published',
+    isHeadline: false,
     relatedArticleIds: ['news-1', 'news-2']
   }
 ];
@@ -722,6 +729,15 @@ export const ALUMNI_TESTIMONIALS: AlumniTestimonial[] = [
   }
 ];
 
+export const DEFAULT_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
+  'Super Admin CMS': ['articles', 'ppdb', 'gallery', 'testimonials', 'headmaster', 'identity', 'traffic', 'database', 'users'],
+  'Admin Humas & Redaksi': ['articles', 'gallery', 'testimonials', 'traffic'],
+  'Kepala Sekolah': ['headmaster', 'traffic', 'articles', 'gallery', 'testimonials'],
+  'Admin PPDB & Kesiswaan': ['ppdb', 'traffic'],
+  'Admin BKK & Alumni': ['testimonials', 'articles', 'traffic'],
+  'Admin IT & Operator': ['database', 'traffic', 'identity', 'users']
+};
+
 export const ADMIN_USERS: AdminUser[] = [
   {
     id: 'admin-1',
@@ -729,23 +745,55 @@ export const ADMIN_USERS: AdminUser[] = [
     email: 'admin@smkyapekgombong.sch.id',
     role: 'Super Admin CMS',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
-    lastLogin: 'Hari ini, 08:30 WIB'
+    password: 'admin123',
+    department: 'Unit Sistem Informasi & IT Center',
+    phone: '0812-3456-7890',
+    status: 'active',
+    permissions: ['articles', 'ppdb', 'gallery', 'testimonials', 'headmaster', 'identity', 'traffic', 'database', 'users'],
+    lastLogin: 'Hari ini, 08:30 WIB',
+    createdAt: '01 Juli 2025'
   },
   {
     id: 'admin-2',
     name: 'Drs. H. Suwarno, M.M.',
     email: 'kepsek@smkyapekgombong.sch.id',
     role: 'Kepala Sekolah',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
-    lastLogin: 'Kemarin, 16:45 WIB'
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80',
+    password: 'kepsek123',
+    department: 'Pimpinan & Manajemen Sekolah',
+    phone: '0813-9876-5432',
+    status: 'active',
+    permissions: ['headmaster', 'traffic', 'articles', 'gallery', 'testimonials'],
+    lastLogin: 'Kemarin, 16:45 WIB',
+    createdAt: '01 Juli 2025'
   },
   {
     id: 'admin-3',
     name: 'Tim Redaksi & Humas BKK',
     email: 'redaksi@smkyapekgombong.sch.id',
     role: 'Admin Humas & Redaksi',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80',
-    lastLogin: '2 hari yang lalu'
+    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=150&q=80',
+    password: 'redaksi123',
+    department: 'Humas & Publikasi Digital',
+    phone: '0821-4567-8901',
+    status: 'active',
+    permissions: ['articles', 'gallery', 'testimonials', 'traffic'],
+    lastLogin: '2 hari yang lalu',
+    createdAt: '15 Agustus 2025'
+  },
+  {
+    id: 'admin-4',
+    name: 'Panitia PPDB 2026/2027',
+    email: 'ppdb@smkyapekgombong.sch.id',
+    role: 'Admin PPDB & Kesiswaan',
+    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
+    password: 'ppdb123',
+    department: 'Kesiswaan & Panitia PPDB',
+    phone: '0857-1122-3344',
+    status: 'active',
+    permissions: ['ppdb', 'traffic'],
+    lastLogin: '3 hari yang lalu',
+    createdAt: '01 Januari 2026'
   }
 ];
 

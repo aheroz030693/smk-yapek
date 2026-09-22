@@ -23,8 +23,13 @@ import { AdminHeadmasterSection } from '../admin/AdminHeadmasterSection';
 import { AdminTestimonialsSection } from '../admin/AdminTestimonialsSection';
 import { AdminIdentitySection } from '../admin/AdminIdentitySection';
 import { AdminDatabaseSection } from '../admin/AdminDatabaseSection';
+import { AdminUsersSection } from '../admin/AdminUsersSection';
+import { DEFAULT_ROLE_PERMISSIONS, ADMIN_USERS } from '../../data/schoolData';
 import { 
   ShieldCheck, 
+  ShieldAlert,
+  Lock,
+  UserPlus,
   FileText, 
   Eye, 
   Plus, 
@@ -40,6 +45,7 @@ import {
   Save,
   X,
   Sparkles,
+  Star,
   ArrowLeft,
   ChevronRight,
   Filter,
@@ -134,6 +140,8 @@ interface AdminScreenProps {
   topPages: TopPageTraffic[];
   visitorLogs: VisitorLog[];
   adminUser: AdminUser | null;
+  adminUsers?: AdminUser[];
+  onUpdateAdminUsers?: (updated: AdminUser[]) => void;
   galleryItems?: ActivityGalleryItem[];
   onLoginSuccess: (user: AdminUser) => void;
   onLogoutAdmin: () => void;
@@ -150,7 +158,7 @@ interface AdminScreenProps {
   isDarkMode: boolean;
 }
 
-export type AdminTab = 'traffic' | 'gallery' | 'testimonials' | 'headmaster' | 'identity' | 'articles' | 'ppdb' | 'database';
+export type AdminTab = 'traffic' | 'gallery' | 'testimonials' | 'headmaster' | 'identity' | 'articles' | 'ppdb' | 'database' | 'users';
 
 export const AdminScreen: React.FC<AdminScreenProps> = ({
   newsList,
@@ -163,6 +171,8 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
   topPages,
   visitorLogs,
   adminUser,
+  adminUsers = ADMIN_USERS,
+  onUpdateAdminUsers,
   galleryItems = [],
   onLoginSuccess,
   onLogoutAdmin,
@@ -181,6 +191,14 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
   // Active Tab in Admin
   const [activeAdminTab, setActiveAdminTab] = useState<AdminTab>('traffic');
 
+  // RBAC permission checker for current admin
+  const userHasAccess = (tab: AdminTab): boolean => {
+    if (!adminUser) return false;
+    if (adminUser.role === 'Super Admin CMS') return true;
+    const perms = adminUser.permissions || DEFAULT_ROLE_PERMISSIONS[adminUser.role] || [];
+    return perms.includes(tab as any);
+  };
+
   // If user is not authenticated, show modern login screen
   if (!adminUser) {
     return (
@@ -188,6 +206,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
         onLoginSuccess={onLoginSuccess}
         onBackToHome={onExitAdmin}
         isDarkMode={isDarkMode}
+        adminUsers={adminUsers}
       />
     );
   }
@@ -222,6 +241,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
     author: adminUser.name || 'Admin Humas SMK YAPEK',
     views: 0,
     status: 'published',
+    isHeadline: true,
     tags: ['SMK YAPEK', 'Kebumen'],
     attachments: [],
     contentImages: []
@@ -456,14 +476,29 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
   // Calculate statistics for articles
   const totalViews = newsList.reduce((acc, curr) => acc + curr.views, 0);
   const avgViews = newsList.length > 0 ? Math.round(totalViews / newsList.length) : 0;
+  const headlineCount = newsList.filter((n) => n.isHeadline).length;
 
   // Filtered news
   const filteredNews = newsList.filter((item) => {
     const matchSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                         item.author.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchCat = selectedCategory === 'SEMUA' || item.category === selectedCategory;
+    const matchCat = 
+      selectedCategory === 'SEMUA' || 
+      (selectedCategory === 'HEADLINE' ? item.isHeadline : item.category === selectedCategory);
     return matchSearch && matchCat;
   });
+
+  // Toggle article headline status on the fly
+  const handleToggleHeadline = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const updated = newsList.map((item) => {
+      if (item.id === id) {
+        return { ...item, isHeadline: !item.isHeadline };
+      }
+      return item;
+    });
+    onUpdateNews(updated);
+  };
 
   // Pending testimonials count for notification badge
   const pendingTestimonialsCount = testimonials.filter((t) => t.status === 'pending').length;
@@ -480,6 +515,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
       author: adminUser.name || 'Tim Redaksi SMK YAPEK',
       views: 0,
       status: 'published',
+      isHeadline: true,
       tags: ['SMK YAPEK', 'Vokasi'],
       attachments: [],
       contentImages: []
@@ -491,6 +527,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
     setEditingArticle(item);
     setFormData({ 
       ...item,
+      isHeadline: item.isHeadline ?? false,
       attachments: item.attachments || [],
       contentImages: item.contentImages || []
     });
@@ -514,6 +551,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
           ? ({ 
               ...item, 
               ...formData, 
+              isHeadline: formData.isHeadline ?? false,
               attachments: formData.attachments || [],
               contentImages: formData.contentImages || [],
               id: editingArticle.id 
@@ -533,6 +571,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
         author: formData.author?.trim() || adminUser.name,
         views: formData.views || 0,
         status: 'published',
+        isHeadline: formData.isHeadline ?? true,
         tags: formData.tags || ['SMK YAPEK'],
         attachments: formData.attachments || [],
         contentImages: formData.contentImages || []
@@ -565,10 +604,17 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
     { id: 'ppdb', label: 'Pendaftar PPDB', icon: Users, badge: applicants.length },
     { 
       id: 'database', 
-      label: 'Database & SQL', 
+      label: 'Database & XAMPP / MySQL', 
       icon: Database, 
-      badge: '12 Tabel', 
+      badge: 'MySQL/PG', 
       badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' 
+    },
+    { 
+      id: 'users', 
+      label: 'Hak Akses & Akun', 
+      icon: ShieldAlert, 
+      badge: adminUsers.length, 
+      badgeColor: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' 
     }
   ];
 
@@ -643,6 +689,8 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
             {navTabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeAdminTab === tab.id;
+              const hasAccess = userHasAccess(tab.id);
+
               return (
                 <button
                   key={tab.id}
@@ -651,10 +699,13 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
                     isActive
                       ? 'bg-[#0F4374] text-white shadow-md'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
-                  }`}
+                  } ${!hasAccess ? 'opacity-75' : ''}`}
                 >
                   <Icon className={`w-4 h-4 ${isActive ? 'text-amber-400' : 'text-slate-400'}`} />
                   <span>{tab.label}</span>
+                  {!hasAccess && (
+                    <Lock className="w-3 h-3 text-slate-400 dark:text-slate-500 ml-0.5" />
+                  )}
                   {tab.badge !== undefined && (
                     <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
                       tab.badgeColor || (isActive ? 'bg-white/20 text-white' : 'bg-slate-300 dark:bg-slate-800 text-slate-700 dark:text-slate-300')
@@ -668,8 +719,39 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
           </div>
         </div>
 
+        {/* ACCESS RESTRICTION NOTICE */}
+        {!userHasAccess(activeAdminTab) && (
+          <div className="p-8 sm:p-12 rounded-3xl border border-amber-200 dark:border-amber-900/60 bg-white dark:bg-slate-900 shadow-sm text-center max-w-2xl mx-auto space-y-4 my-6">
+            <div className="w-16 h-16 rounded-3xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-sm">
+              <Lock className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-slate-900 dark:text-white">
+                Hak Akses Modul Dibatasi
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 max-w-md mx-auto leading-relaxed">
+                Akun Anda saat ini (<strong>{adminUser.name}</strong> - <em>{adminUser.role}</em>) tidak memiliki izin akses untuk modul <strong>{navTabs.find(t => t.id === activeAdminTab)?.label}</strong>.
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Silakan hubungi <strong>Super Admin CMS</strong> jika Anda memerlukan penyesuaian hak akses akun.
+              </p>
+            </div>
+            <div className="pt-2 flex items-center justify-center gap-3">
+              <button
+                onClick={() => {
+                  const firstAllowed = navTabs.find(t => userHasAccess(t.id));
+                  if (firstAllowed) setActiveAdminTab(firstAllowed.id);
+                }}
+                className="px-5 py-2.5 rounded-xl bg-[#0F4374] hover:bg-blue-900 text-white font-bold text-xs transition-colors shadow-sm"
+              >
+                Buka Modul Yang Diizinkan
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* TAB 1: TRAFIK & PENGUNJUNG */}
-        {activeAdminTab === 'traffic' && (
+        {userHasAccess('traffic') && activeAdminTab === 'traffic' && (
           <AdminTrafficSection
             trafficData={trafficData}
             trafficSources={trafficSources}
@@ -712,6 +794,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
           <AdminIdentitySection
             schoolInfo={schoolInfo}
             onUpdateSchoolInfo={onUpdateSchoolInfo}
+            onNavigateToTab={onNavigateToTab}
             isDarkMode={isDarkMode}
           />
         )}
@@ -744,13 +827,26 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
             </div>
 
             {/* Metrics */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-                <span className="text-xs font-bold text-slate-400">Total Berita Dipublikasikan</span>
+                <span className="text-xs font-bold text-slate-400">Total Berita</span>
                 <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">
                   {newsList.length} Artikel
                 </div>
-                <p className="text-[10px] text-slate-400 mt-0.5">Semua aktif di beranda</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">Semua aktif di portal</p>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-amber-300/80 dark:border-amber-800/80 bg-gradient-to-br from-amber-50/60 to-white dark:from-amber-950/30 dark:to-slate-900 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-700 dark:text-amber-300">Slider Headline Header</span>
+                  <span className="p-1 rounded-lg bg-amber-400 text-slate-950">
+                    <Star className="w-3.5 h-3.5 fill-slate-950" />
+                  </span>
+                </div>
+                <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
+                  {headlineCount} Headline
+                </div>
+                <p className="text-[10px] text-amber-700/80 dark:text-amber-400/80 mt-0.5">Berputar otomatis di slider</p>
               </div>
 
               <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
@@ -773,17 +869,25 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
             {/* Filter & Search Bar */}
             <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto">
-                {['SEMUA', 'PPDB', 'Prestasi', 'Kegiatan', 'BKK', 'Akademik'].map((cat) => (
+                {[
+                  { id: 'SEMUA', label: 'SEMUA' },
+                  { id: 'HEADLINE', label: `⭐ HEADLINE (${headlineCount})` },
+                  { id: 'PPDB', label: 'PPDB' },
+                  { id: 'Prestasi', label: 'Prestasi' },
+                  { id: 'Kegiatan', label: 'Kegiatan' },
+                  { id: 'BKK', label: 'BKK' },
+                  { id: 'Akademik', label: 'Akademik' }
+                ].map((cat) => (
                   <button
-                    key={cat}
-                    onClick={() => setSelectedCategory(cat)}
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.id)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
-                      selectedCategory === cat
+                      selectedCategory === cat.id
                         ? 'bg-[#0F4374] text-white'
                         : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                     }`}
                   >
-                    {cat}
+                    {cat.label}
                   </button>
                 ))}
               </div>
@@ -808,6 +912,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
                     <tr>
                       <th className="py-3.5 px-4">Artikel Berita</th>
                       <th className="py-3.5 px-4">Kategori</th>
+                      <th className="py-3.5 px-4 text-center">Slider Headline</th>
                       <th className="py-3.5 px-4">Tanggal & Penulis</th>
                       <th className="py-3.5 px-4 text-center">Pembaca</th>
                       <th className="py-3.5 px-4 text-right">Aksi Tindakan</th>
@@ -854,6 +959,21 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-[#0F4374] dark:bg-blue-950 dark:text-sky-300 border border-blue-200 dark:border-blue-900">
                             {item.category}
                           </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggleHeadline(item.id, e)}
+                            title={item.isHeadline ? 'Status: Headline Aktif (Klik untuk non-aktifkan)' : 'Status: Bukan Headline (Klik untuk jadikan headline)'}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                              item.isHeadline
+                                ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 font-black shadow-xs ring-2 ring-amber-400/30'
+                                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400'
+                            }`}
+                          >
+                            <Star className={`w-3 h-3 ${item.isHeadline ? 'fill-slate-950 text-slate-950' : 'text-slate-400'}`} />
+                            <span>{item.isHeadline ? 'Yes (Headline)' : 'No'}</span>
+                          </button>
                         </td>
                         <td className="py-3.5 px-4">
                           <div className="font-medium text-slate-800 dark:text-slate-200">{item.date}</div>
@@ -973,12 +1093,22 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
         )}
 
         {/* TAB 7: DATABASE CONFIG & SQL SCHEMA */}
-        {activeAdminTab === 'database' && (
+        {userHasAccess('database') && activeAdminTab === 'database' && (
           <AdminDatabaseSection
             newsList={newsList}
             applicants={applicants}
             testimonials={testimonials}
             galleryItems={galleryItems}
+            isDarkMode={isDarkMode}
+          />
+        )}
+
+        {/* TAB 8: HAK AKSES & AKUN ADMIN CMS */}
+        {userHasAccess('users') && activeAdminTab === 'users' && (
+          <AdminUsersSection
+            adminUsers={adminUsers}
+            currentAdmin={adminUser}
+            onUpdateAdminUsers={onUpdateAdminUsers || (() => {})}
             isDarkMode={isDarkMode}
           />
         )}
@@ -1063,6 +1193,58 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({
                     onChange={(e) => setFormData({ ...formData, views: parseInt(e.target.value) || 0 })}
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
                   />
+                </div>
+              </div>
+
+              {/* Opsi Tampilkan Sebagai Headline Slider (Yes / No) */}
+              <div className="p-4 rounded-2xl border border-amber-300/80 dark:border-amber-800/80 bg-gradient-to-r from-amber-50/90 via-amber-50/50 to-white dark:from-amber-950/40 dark:via-slate-900 dark:to-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-amber-500 text-slate-950 flex-shrink-0 shadow-sm">
+                    <Star className="w-5 h-5 fill-slate-950" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <span>Jadikan Headline Berita Utama?</span>
+                      <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider ${
+                        formData.isHeadline 
+                          ? 'bg-amber-400 text-slate-950 shadow-xs' 
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}>
+                        {formData.isHeadline ? 'Yes (Aktif di Slider)' : 'No (Bukan Headline)'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                      Jika dipilih <strong>Yes</strong>, artikel ini akan otomatis tampil dan berputar pada <em>Slider Otomatis</em> di bagian Header Beranda portal.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Yes / No Toggle Button Group */}
+                <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 p-1.5 rounded-xl border border-amber-300 dark:border-slate-800 shadow-xs self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, isHeadline: true })}
+                    className={`px-4 py-2 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all ${
+                      formData.isHeadline
+                        ? 'bg-amber-500 text-slate-950 shadow-sm ring-1 ring-amber-500'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Yes (Ya)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, isHeadline: false })}
+                    className={`px-4 py-2 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all ${
+                      !formData.isHeadline
+                        ? 'bg-slate-700 text-white shadow-sm ring-1 ring-slate-600'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <X className="w-4 h-4" />
+                    <span>No (Tidak)</span>
+                  </button>
                 </div>
               </div>
 

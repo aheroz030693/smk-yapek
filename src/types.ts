@@ -41,6 +41,7 @@ export interface NewsItem {
   views: number;
   tags?: string[];
   status?: 'published' | 'draft';
+  isHeadline?: boolean;
   relatedArticleIds?: string[];
   attachments?: NewsAttachment[];
   contentImages?: NewsContentImage[];
@@ -136,6 +137,7 @@ export interface SchoolIdentity {
   shortName: string;
   motto: string;
   tagline: string;
+  logo?: string;
   npsn: string;
   accreditation: string;
   establishedYear: string;
@@ -158,13 +160,38 @@ export interface SchoolIdentity {
   };
 }
 
+export type AdminRole = 
+  | 'Super Admin CMS' 
+  | 'Admin Humas & Redaksi' 
+  | 'Kepala Sekolah'
+  | 'Admin PPDB & Kesiswaan'
+  | 'Admin BKK & Alumni'
+  | 'Admin IT & Operator';
+
+export type AdminPermission =
+  | 'articles'       // Berita & Warta Sekolah
+  | 'ppdb'           // Pendaftar PPDB Online
+  | 'gallery'        // Galeri Kegiatan Sekolah
+  | 'testimonials'   // Testimoni Alumni
+  | 'headmaster'     // Foto & Sambutan Kepala Sekolah
+  | 'identity'       // Identitas & Kontak Sekolah
+  | 'traffic'        // Trafik & Analisis Pengunjung
+  | 'database'       // Backup Database & SQL
+  | 'users';         // Hak Akses & Akun Admin
+
 export interface AdminUser {
   id: string;
   name: string;
   email: string;
-  role: 'Super Admin CMS' | 'Admin Humas & Redaksi' | 'Kepala Sekolah';
+  role: AdminRole;
   avatar: string;
+  password?: string;
+  department?: string;
+  phone?: string;
+  status?: 'active' | 'inactive';
+  permissions?: AdminPermission[];
   lastLogin?: string;
+  createdAt?: string;
 }
 
 export interface DailyTraffic {

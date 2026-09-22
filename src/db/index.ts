@@ -7,6 +7,7 @@ import { RAW_DATABASE_SQL } from './sqlData';
 
 export * from './config';
 export * from './sqlData';
+export * from './mysqlData';
 
 /**
  * Trigger browser download of the complete SQL file

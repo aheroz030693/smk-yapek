@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS news (
     author VARCHAR(150) NOT NULL,
     views INT DEFAULT 0,
     status VARCHAR(20) DEFAULT 'published', -- published, draft, archived
+    is_headline BOOLEAN DEFAULT FALSE,      -- Tampil di slider headline header
     tags_json TEXT,
     related_article_ids_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -204,15 +205,19 @@ CREATE TABLE IF NOT EXISTS activity_gallery (
 );
 
 -- ==============================================================================
--- TABEL 11: admin_users (Akun Pengelola & Redaksi)
+-- TABEL 11: admin_users (Akun Pengelola & Hak Akses RBAC CMS)
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS admin_users (
     id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(150) UNIQUE NOT NULL,
-    role VARCHAR(50) NOT NULL, -- Super Admin CMS, Admin Humas & Redaksi, Kepala Sekolah
+    role VARCHAR(50) NOT NULL, -- Super Admin CMS, Admin Humas & Redaksi, Admin PPDB & Kesiswaan, Kepala Sekolah
+    department VARCHAR(100),
+    phone VARCHAR(50),
+    status VARCHAR(20) DEFAULT 'active', -- active / inactive
     avatar TEXT,
     password_hash VARCHAR(255),
+    permissions_json TEXT, -- JSON Array hak akses modul ['articles', 'ppdb', 'gallery', ...]
     last_login VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -392,7 +397,7 @@ INSERT INTO majors (
 -- 4. DATA BERITA & WARTA RESMI
 INSERT INTO news (
     id, title, category, date_text, image, summary, content, author, views, status,
-    tags_json, related_article_ids_json
+    is_headline, tags_json, related_article_ids_json
 ) VALUES 
 (
     'news-1',
@@ -405,6 +410,7 @@ INSERT INTO news (
     'Panitia PPDB 2026',
     1420,
     'published',
+    TRUE,
     '["PPDB 2026", "Pendaftaran", "Beasiswa", "Gombong"]',
     '["news-2", "news-3"]'
 ),
@@ -419,6 +425,7 @@ INSERT INTO news (
     'Humas SMK YAGO',
     980,
     'published',
+    TRUE,
     '["Prestasi", "TKJ", "LKS Kedu", "Medali Emas"]',
     '["news-1", "news-3"]'
 ),
@@ -433,6 +440,7 @@ INSERT INTO news (
     'Koordinator BKK',
     1850,
     'published',
+    TRUE,
     '["BKK", "Lowongan Kerja", "Astra", "Alfamart"]',
     '["news-1", "news-4"]'
 ),
@@ -447,6 +455,7 @@ INSERT INTO news (
     'Ketua Program TKKR',
     760,
     'published',
+    FALSE,
     '["Tata Kecantikan", "TKKR", "Workshop", "MUA"]',
     '["news-1", "news-2"]'
 ) ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title;
@@ -697,12 +706,13 @@ INSERT INTO activity_gallery (
     TRUE
 ) ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title;
 
--- 11. AKUN ADMIN CMS & REDAKSI
-INSERT INTO admin_users (id, name, email, role, avatar, last_login) VALUES 
-('admin-1', 'Admin Utama Humas & IT', 'admin@smkyapekgombong.sch.id', 'Super Admin CMS', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80', 'Hari ini, 08:30 WIB'),
-('admin-2', 'Drs. H. Suwarno, M.M.', 'kepsek@smkyapekgombong.sch.id', 'Kepala Sekolah', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80', 'Kemarin, 16:45 WIB'),
-('admin-3', 'Tim Redaksi & Humas BKK', 'redaksi@smkyapekgombong.sch.id', 'Admin Humas & Redaksi', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80', '2 hari yang lalu')
-ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
+-- 11. AKUN ADMIN CMS & REDAKSI RBAC
+INSERT INTO admin_users (id, name, email, role, department, phone, status, avatar, password_hash, permissions_json, last_login) VALUES 
+('admin-1', 'Super Admin Humas & IT', 'admin@smkyapekgombong.sch.id', 'Super Admin CMS', 'Teknologi Informasi & Humas', '0812-3456-7890', 'active', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80', '$2y$10$e8w8H/j19oM2iN3...', '["articles", "ppdb", "gallery", "testimonials", "headmaster", "identity", "traffic", "database", "users"]', 'Hari ini, 08:30 WIB'),
+('admin-2', 'Drs. H. Suwarno, M.M.', 'kepsek@smkyapekgombong.sch.id', 'Kepala Sekolah', 'Pimpinan & Manajemen Sekolah', '0813-9876-5432', 'active', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80', '$2y$10$k1pS9wL7m5vQ8x...', '["headmaster", "traffic", "articles", "gallery", "testimonials"]', 'Kemarin, 16:45 WIB'),
+('admin-3', 'Tim Redaksi & Humas BKK', 'redaksi@smkyapekgombong.sch.id', 'Admin Humas & Redaksi', 'Humas & Publikasi Digital', '0821-4567-8901', 'active', 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=150&q=80', '$2y$10$r3d4kS10p4sSW0...', '["articles", "gallery", "testimonials", "traffic"]', '2 hari yang lalu'),
+('admin-4', 'Panitia PPDB 2026/2027', 'ppdb@smkyapekgombong.sch.id', 'Admin PPDB & Kesiswaan', 'Kesiswaan & Panitia PPDB', '0857-1122-3344', 'active', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80', '$2y$10$pPdB2026kEsiS...', '["ppdb", "traffic"]', '3 hari yang lalu')
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, permissions_json = EXCLUDED.permissions_json;
 
 -- 12. LOG KUNJUNGAN ANALITIK
 INSERT INTO visitor_logs (id, ip_masked, page, source, device, city, visit_time) VALUES

@@ -4,6 +4,7 @@ interface SchoolLogoProps {
   variant?: 'light' | 'dark' | 'auto';
   showText?: boolean;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  customLogoUrl?: string;
   className?: string;
   onClick?: () => void;
 }
@@ -12,9 +13,12 @@ export const SchoolLogo: React.FC<SchoolLogoProps> = ({
   variant = 'light',
   showText = true,
   size = 'md',
+  customLogoUrl,
   className = '',
   onClick
 }) => {
+  const [imgFailed, setImgFailed] = React.useState(false);
+
   // Height configurations
   const heightMap = {
     xs: 'h-8',
@@ -40,39 +44,48 @@ export const SchoolLogo: React.FC<SchoolLogoProps> = ({
       onClick={onClick}
       className={`inline-flex items-center gap-3 select-none ${onClick ? 'cursor-pointer hover:opacity-95 transition-opacity' : ''} ${className}`}
     >
-      {/* Precision Vector Emblem Badge (Matches exactly the uploaded emblem) */}
-      <div className={`relative flex-shrink-0 ${emblemSizeMap[size]}`}>
-        <svg
-          viewBox="0 0 120 130"
-          className="w-full h-full drop-shadow-sm"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          {/* Badge Outer Pin/Shield Shape with Golden Yellow/Amber border */}
-          <path
-            d="M 60 5 C 92 5, 115 28, 115 60 C 115 88, 85 110, 60 120 C 35 110, 5 88, 5 60 C 5 28, 28 5, 60 5 Z"
-            fill={isDark ? '#0D365E' : '#0F4374'}
-            stroke="#EA8B00"
-            strokeWidth="8"
-            strokeLinejoin="round"
+      {/* Precision Vector Emblem Badge or Custom Uploaded Logo */}
+      <div className={`relative flex-shrink-0 ${emblemSizeMap[size]} flex items-center justify-center`}>
+        {customLogoUrl && !imgFailed && customLogoUrl !== '/logo-emblem.svg' ? (
+          <img
+            src={customLogoUrl}
+            alt="Logo SMK YAPEK Gombong"
+            onError={() => setImgFailed(true)}
+            className="w-full h-full object-contain drop-shadow-sm"
           />
-          {/* Inner White Circle Outline Ring */}
-          <circle cx="60" cy="58" r="32" stroke="#FFFFFF" strokeWidth="5" fill="none" />
-          {/* Circular Clip for Sun and Wave */}
-          <g clipPath="url(#logoInnerClip)">
-            <circle cx="60" cy="58" r="29" fill={isDark ? '#0D365E' : '#0F4374'} />
-            {/* Golden Sun Core in upper half */}
-            <circle cx="60" cy="54" r="18" fill="#EA8B00" />
-            {/* Stylized White Wave in lower half */}
+        ) : (
+          <svg
+            viewBox="0 0 120 130"
+            className="w-full h-full drop-shadow-sm"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            {/* Badge Outer Pin/Shield Shape with Golden Yellow/Amber border */}
             <path
-              d="M 32 64 C 44 58, 54 68, 60 62 C 66 56, 76 68, 88 64 L 88 88 L 32 88 Z"
-              fill="#FFFFFF"
+              d="M 60 5 C 92 5, 115 28, 115 60 C 115 88, 85 110, 60 120 C 35 110, 5 88, 5 60 C 5 28, 28 5, 60 5 Z"
+              fill={isDark ? '#0D365E' : '#0F4374'}
+              stroke="#EA8B00"
+              strokeWidth="8"
+              strokeLinejoin="round"
             />
-          </g>
-          <clipPath id="logoInnerClip">
-            <circle cx="60" cy="58" r="29" />
-          </clipPath>
-        </svg>
+            {/* Inner White Circle Outline Ring */}
+            <circle cx="60" cy="58" r="32" stroke="#FFFFFF" strokeWidth="5" fill="none" />
+            {/* Circular Clip for Sun and Wave */}
+            <g clipPath="url(#logoInnerClip)">
+              <circle cx="60" cy="58" r="29" fill={isDark ? '#0D365E' : '#0F4374'} />
+              {/* Golden Sun Core in upper half */}
+              <circle cx="60" cy="54" r="18" fill="#EA8B00" />
+              {/* Stylized White Wave in lower half */}
+              <path
+                d="M 32 64 C 44 58, 54 68, 60 62 C 66 56, 76 68, 88 64 L 88 88 L 32 88 Z"
+                fill="#FFFFFF"
+              />
+            </g>
+            <clipPath id="logoInnerClip">
+              <circle cx="60" cy="58" r="29" />
+            </clipPath>
+          </svg>
+        )}
       </div>
 
       {/* Typography Label */}
